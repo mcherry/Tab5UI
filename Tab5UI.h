@@ -5,7 +5,7 @@
  * 5-inch 1280x720 IPS capacitive touchscreen.
  *
  * Widgets: Label, Button, TitleBar, StatusBar, TextRow, IconSquare, IconCircle,
- *          Menu, TextInput, Keyboard
+ *          Menu, TextInput, Keyboard, TabView
  * All widgets support touch and touch-release event callbacks.
  *
  * License: MIT
@@ -45,6 +45,9 @@
 #define TAB5_LIST_ITEM_H    48      // List item row height
 #define TAB5_LIST_MAX_ITEMS 64      // Max items in a list
 #define TAB5_LIST_SCROLLBAR_W 6     // Scrollbar width
+#define TAB5_TAB_BAR_H      48      // Tab bar height
+#define TAB5_TAB_MAX_PAGES  8       // Max pages in a tab view
+#define TAB5_TAB_MAX_CHILDREN 24    // Max child elements per page
 #define TAB5_FONT_SIZE_SM   1.4f    // Small text
 #define TAB5_FONT_SIZE_MD   1.8f    // Medium text (labels, buttons)
 #define TAB5_FONT_SIZE_LG   2.4f    // Large text (title bar)
@@ -128,6 +131,7 @@ public:
     virtual bool isMenu() const       { return false; }
     virtual bool isKeyboard() const   { return false; }
     virtual bool isPopup() const      { return false; }
+    virtual bool isTabView() const    { return false; }
 
     // ── Dirty flag (needs redraw) ──
     void setDirty(bool d = true) { _dirty = d; }
@@ -632,6 +636,138 @@ private:
     TextSubmitCallback _onChange  = nullptr;
 
     void onKeyPress(char ch);  // Internal handler for keyboard input
+};
+
+/*******************************************************************************
+ * UITabView — Multi-page tabbed container
+ *
+ * Each tab page has a label (shown in the tab bar) and holds its own
+ * set of child UI elements.  Only the active page's children are drawn
+ * and receive touch events.
+ *
+ * The tab bar can be placed at the top or bottom of the widget.
+ *
+ * Usage:
+ *   UITabView tabs(0, 48, 1280, 636);    // x, y, w, h
+ *   int page0 = tabs.addPage("Controls");
+ *   int page1 = tabs.addPage("Settings");
+ *   tabs.addChild(page0, &myButton);
+ *   tabs.addChild(page0, &myLabel);
+ *   tabs.addChild(page1, &myList);
+ *   ui.addElement(&tabs);
+ *
+ * The child element positions should be relative to the content area
+ * of the tab view.  The tab view translates coordinates internally.
+ ******************************************************************************/
+enum class TabPosition {
+    TOP,
+    BOTTOM
+};
+
+using TabChangeCallback = std::function<void(int pageIndex)>;
+
+struct UITabPage {
+    char       label[32];
+    UIElement* children[TAB5_TAB_MAX_CHILDREN];
+    int        childCount;
+
+    UITabPage() : childCount(0) {
+        label[0] = '\0';
+        for (int i = 0; i < TAB5_TAB_MAX_CHILDREN; i++) children[i] = nullptr;
+    }
+};
+
+class UITabView : public UIElement {
+public:
+    UITabView(int16_t x, int16_t y, int16_t w, int16_t h,
+              TabPosition pos = TabPosition::TOP,
+              uint32_t barColor    = Tab5Theme::SURFACE,
+              uint32_t activeColor = Tab5Theme::PRIMARY,
+              uint32_t textColor   = Tab5Theme::TEXT_PRIMARY);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // Type identification
+    bool isTabView() const override { return true; }
+
+    // ── Page management ──
+    /// Add a new tab page with the given label.  Returns the page index.
+    int  addPage(const char* label);
+    /// Add a child element to a specific page.
+    void addChild(int pageIndex, UIElement* child);
+    /// Remove a child element from a page.
+    void removeChild(int pageIndex, UIElement* child);
+    /// Remove all children from a page.
+    void clearPage(int pageIndex);
+    /// Remove all pages.
+    void clearAllPages();
+    /// Get page count.
+    int  pageCount() const { return _pageCount; }
+
+    // ── Active page ──
+    int  getActivePage() const { return _activePage; }
+    void setActivePage(int index);
+
+    // ── Page label ──
+    void setPageLabel(int pageIndex, const char* label);
+    const char* getPageLabel(int pageIndex) const;
+
+    // ── Callback when the active tab changes ──
+    void setOnTabChange(TabChangeCallback cb) { _onTabChange = cb; }
+
+    // ── Tab bar position ──
+    void setTabPosition(TabPosition pos) { _tabPos = pos; _dirty = true; }
+    TabPosition getTabPosition() const { return _tabPos; }
+
+    // ── Colors ──
+    void setBarColor(uint32_t c)        { _barColor = c; _dirty = true; }
+    void setActiveColor(uint32_t c)     { _activeColor = c; _dirty = true; }
+    void setInactiveColor(uint32_t c)   { _inactiveColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)       { _textColor = c; _dirty = true; }
+    void setActiveTextColor(uint32_t c) { _activeTextColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)     { _borderColor = c; _dirty = true; }
+    void setTabBarHeight(int16_t h)     { _tabBarH = h; _dirty = true; }
+
+    // ── Content area geometry (for positioning children) ──
+    int16_t contentX() const { return _x; }
+    int16_t contentY() const;
+    int16_t contentW() const { return _w; }
+    int16_t contentH() const;
+
+    // Check if any child on the active page is dirty (used by UIManager)
+    bool hasActiveDirtyChild() const;
+
+private:
+    UITabPage _pages[TAB5_TAB_MAX_PAGES];
+    int       _pageCount  = 0;
+    int       _activePage = 0;
+    int16_t   _tabBarH    = TAB5_TAB_BAR_H;
+
+    TabPosition _tabPos;
+
+    uint32_t _barColor;
+    uint32_t _activeColor;
+    uint32_t _inactiveColor = Tab5Theme::BG_MEDIUM;
+    uint32_t _textColor;
+    uint32_t _activeTextColor = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _borderColor  = Tab5Theme::BORDER;
+
+    TabChangeCallback _onTabChange = nullptr;
+
+    // Touch tracking for child dispatch
+    UIElement* _touchedChild = nullptr;
+
+    // Returns true if (tx,ty) is in the tab bar area
+    bool hitTestTabBar(int16_t tx, int16_t ty) const;
+    // Returns the page index under (tx,ty) in the tab bar, or -1
+    int  tabIndexAt(int16_t tx, int16_t ty) const;
+    // Draw the tab bar
+    void drawTabBar(M5GFX& gfx);
+    // Get the tab bar Y position
+    int16_t tabBarY() const;
 };
 
 /*******************************************************************************

@@ -17,6 +17,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UITextInput** | Single-line text input field with placeholder and focus highlight |
 | **UIKeyboard** | Full-screen modal QWERTY touch keyboard with Shift, Symbols, and Hide |
 | **UIList** | Scrollable list with touch-drag scrolling, item selection, and scrollbar |
+| **UITabView** | Multi-page tabbed container with configurable top/bottom tab bar |
 | **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
@@ -383,6 +384,62 @@ taps from drags using an 8px threshold. A scrollbar appears automatically
 when content overflows the visible area. Up to 64 items are supported.
 Disabled items are drawn in gray and cannot be selected.
 
+### UITabView
+
+```cpp
+UITabView(x, y, w, h, TabPosition::TOP, barColor, activeColor, textColor);
+
+// Page management
+int  addPage(const char* label);      // Returns page index
+void addChild(int pageIndex, UIElement* child);
+void removeChild(int pageIndex, UIElement* child);
+void clearPage(int pageIndex);
+void clearAllPages();
+int  pageCount() const;
+
+// Active page
+int  getActivePage() const;
+void setActivePage(int index);
+
+// Page labels
+void setPageLabel(int pageIndex, const char* label);
+const char* getPageLabel(int pageIndex) const;
+
+// Tab bar position
+void setTabPosition(TabPosition pos); // TabPosition::TOP or TabPosition::BOTTOM
+TabPosition getTabPosition() const;
+
+// Callbacks
+void setOnTabChange(TabChangeCallback cb); // void(int pageIndex)
+
+// Content area helpers (for positioning children)
+int16_t contentX() const;
+int16_t contentY() const;             // Accounts for tab bar placement
+int16_t contentW() const;
+int16_t contentH() const;             // Total height minus tab bar
+
+// Appearance
+void setBarColor(uint32_t c);
+void setActiveColor(uint32_t c);
+void setInactiveColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setActiveTextColor(uint32_t c);
+void setBorderColor(uint32_t c);
+void setTabBarHeight(int16_t h);      // Default: 48px
+```
+
+**Tab bar placement:** The tab bar can be at the `TOP` (default) or `BOTTOM`
+of the widget.  Call `setTabPosition()` to move it at runtime.
+
+**Child elements:** Each tab page holds up to 24 child elements.  Position
+children relative to `contentY()` (which shifts depending on tab placement).
+Only the active page's children are drawn and receive touch events.  The tab
+view clips children to its content area.
+
+**Touch dispatch:** Tapping a tab switches pages.  Touches in the content area
+are forwarded to the active page's children, including drag/move events
+for scrollable widgets like `UIList`.
+
 ### UIInfoPopup
 
 ```cpp
@@ -440,12 +497,16 @@ Tab5UI/
 │   ├── screenshot2_menu.png
 │   ├── screenshot3_keyboard.png
 │   ├── screenshot4_popup.png
-│   └── screenshot5_list.png
+│   ├── screenshot5_list.png
+│   ├── screenshot6_tab_controls.png
+│   └── screenshot7_tab_list.png
 └── examples/
     ├── Tab5UI_Demo/
     │   └── Tab5UI_Demo.ino           # Full demo sketch
-    └── Tab5UI_List_Demo/
-        └── Tab5UI_List_Demo.ino      # List widget demo
+    ├── Tab5UI_List_Demo/
+    │   └── Tab5UI_List_Demo.ino      # List widget demo
+    └── Tab5UI_Tab_Demo/
+        └── Tab5UI_Tab_Demo.ino       # Tab view demo
 ```
 
 ---
@@ -453,6 +514,8 @@ Tab5UI/
 ## Tips
 
 - Add modal elements (`UIMenu`, `UIKeyboard`) **last** so they draw on top when opened.
+- `UITabView` children should be positioned relative to `tabs.contentY()` — this accounts for tab bar placement.
+- When switching tab bar position at runtime, reposition all children and call `tabs.setDirty(true)`.
 - Multiple `UITextInput` fields can share a single `UIKeyboard` instance.
 - Call `ui.update()` in `loop()` — it handles touch polling, event dispatch, and dirty redraws.
 - Use `startWrite()` / `endWrite()` batching (handled internally by `drawAll` / `drawDirty`).
@@ -480,6 +543,12 @@ Tab5UI/
 
 ### List Demo
 ![List demo](screenshots/screenshot5_list.png)
+
+### Tab Demo — Controls
+![Tab Controls](screenshots/screenshot6_tab_controls.png)
+
+### Tab Demo — Data List
+![Tab Data List](screenshots/screenshot7_tab_list.png)
 
 ## License
 

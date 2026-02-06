@@ -1129,6 +1129,271 @@ void UITextInput::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UITabView
+// ═════════════════════════════════════════════════════════════════════════════
+
+UITabView::UITabView(int16_t x, int16_t y, int16_t w, int16_t h,
+                     TabPosition pos, uint32_t barColor,
+                     uint32_t activeColor, uint32_t textColor)
+    : UIElement(x, y, w, h)
+    , _tabPos(pos)
+    , _barColor(barColor)
+    , _activeColor(activeColor)
+    , _textColor(textColor)
+{}
+
+int UITabView::addPage(const char* label) {
+    if (_pageCount >= TAB5_TAB_MAX_PAGES) return -1;
+    int idx = _pageCount++;
+    strncpy(_pages[idx].label, label, 31);
+    _pages[idx].label[31] = '\0';
+    _pages[idx].childCount = 0;
+    _dirty = true;
+    return idx;
+}
+
+void UITabView::addChild(int pageIndex, UIElement* child) {
+    if (pageIndex < 0 || pageIndex >= _pageCount) return;
+    UITabPage& page = _pages[pageIndex];
+    if (page.childCount >= TAB5_TAB_MAX_CHILDREN) return;
+    page.children[page.childCount++] = child;
+    _dirty = true;
+}
+
+void UITabView::removeChild(int pageIndex, UIElement* child) {
+    if (pageIndex < 0 || pageIndex >= _pageCount) return;
+    UITabPage& page = _pages[pageIndex];
+    for (int i = 0; i < page.childCount; i++) {
+        if (page.children[i] == child) {
+            // Shift remaining children down
+            for (int j = i; j < page.childCount - 1; j++) {
+                page.children[j] = page.children[j + 1];
+            }
+            page.childCount--;
+            page.children[page.childCount] = nullptr;
+            _dirty = true;
+            return;
+        }
+    }
+}
+
+void UITabView::clearPage(int pageIndex) {
+    if (pageIndex < 0 || pageIndex >= _pageCount) return;
+    _pages[pageIndex].childCount = 0;
+    for (int i = 0; i < TAB5_TAB_MAX_CHILDREN; i++)
+        _pages[pageIndex].children[i] = nullptr;
+    _dirty = true;
+}
+
+void UITabView::clearAllPages() {
+    for (int i = 0; i < _pageCount; i++) {
+        clearPage(i);
+    }
+    _pageCount = 0;
+    _activePage = 0;
+    _dirty = true;
+}
+
+void UITabView::setActivePage(int index) {
+    if (index < 0 || index >= _pageCount || index == _activePage) return;
+    _activePage = index;
+    _touchedChild = nullptr;
+    _dirty = true;
+    if (_onTabChange) _onTabChange(index);
+}
+
+void UITabView::setPageLabel(int pageIndex, const char* label) {
+    if (pageIndex < 0 || pageIndex >= _pageCount) return;
+    strncpy(_pages[pageIndex].label, label, 31);
+    _pages[pageIndex].label[31] = '\0';
+    _dirty = true;
+}
+
+const char* UITabView::getPageLabel(int pageIndex) const {
+    if (pageIndex < 0 || pageIndex >= _pageCount) return "";
+    return _pages[pageIndex].label;
+}
+
+int16_t UITabView::tabBarY() const {
+    if (_tabPos == TabPosition::TOP) {
+        return _y;
+    } else {
+        return _y + _h - _tabBarH;
+    }
+}
+
+int16_t UITabView::contentY() const {
+    if (_tabPos == TabPosition::TOP) {
+        return _y + _tabBarH;
+    } else {
+        return _y;
+    }
+}
+
+int16_t UITabView::contentH() const {
+    return _h - _tabBarH;
+}
+
+bool UITabView::hasActiveDirtyChild() const {
+    if (_activePage < 0 || _activePage >= _pageCount) return false;
+    const UITabPage& page = _pages[_activePage];
+    for (int i = 0; i < page.childCount; i++) {
+        if (page.children[i] && page.children[i]->isVisible() && page.children[i]->isDirty())
+            return true;
+    }
+    return false;
+}
+
+bool UITabView::hitTestTabBar(int16_t tx, int16_t ty) const {
+    int16_t barY = tabBarY();
+    return tx >= _x && tx < _x + _w &&
+           ty >= barY && ty < barY + _tabBarH;
+}
+
+int UITabView::tabIndexAt(int16_t tx, int16_t ty) const {
+    if (!hitTestTabBar(tx, ty) || _pageCount == 0) return -1;
+    int16_t tabW = _w / _pageCount;
+    int idx = (tx - _x) / tabW;
+    if (idx >= _pageCount) idx = _pageCount - 1;
+    return idx;
+}
+
+void UITabView::drawTabBar(M5GFX& gfx) {
+    int16_t barY = tabBarY();
+
+    // Tab bar background
+    gfx.fillRect(_x, barY, _w, _tabBarH, rgb888(_barColor));
+
+    if (_pageCount == 0) return;
+
+    int16_t tabW = _w / _pageCount;
+
+    for (int i = 0; i < _pageCount; i++) {
+        int16_t tx = _x + i * tabW;
+        int16_t tw = (i == _pageCount - 1) ? (_x + _w - tx) : tabW; // last tab gets remainder
+
+        if (i == _activePage) {
+            // Active tab highlight
+            gfx.fillRect(tx, barY, tw, _tabBarH, rgb888(_activeColor));
+            // Active indicator bar (3px thick at the content-facing edge)
+            if (_tabPos == TabPosition::TOP) {
+                gfx.fillRect(tx, barY + _tabBarH - 3, tw, 3, rgb888(_activeColor));
+            } else {
+                gfx.fillRect(tx, barY, tw, 3, rgb888(_activeColor));
+            }
+        } else {
+            // Inactive tab
+            gfx.fillRect(tx, barY, tw, _tabBarH, rgb888(_inactiveColor));
+        }
+
+        // Tab label
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_center);
+        uint32_t tc = (i == _activePage) ? rgb888(_activeTextColor) : rgb888(_textColor);
+        gfx.setTextColor(tc);
+        gfx.drawString(_pages[i].label, tx + tw / 2, barY + _tabBarH / 2);
+
+        // Divider between tabs (except last)
+        if (i < _pageCount - 1) {
+            gfx.drawFastVLine(tx + tw, barY + 6, _tabBarH - 12,
+                              rgb888(_borderColor));
+        }
+    }
+
+    // Bottom border for top tabs, top border for bottom tabs
+    if (_tabPos == TabPosition::TOP) {
+        gfx.drawFastHLine(_x, barY + _tabBarH - 1, _w, rgb888(_borderColor));
+    } else {
+        gfx.drawFastHLine(_x, barY, _w, rgb888(_borderColor));
+    }
+}
+
+void UITabView::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Fill the content area background
+    int16_t cy = contentY();
+    int16_t ch = contentH();
+    gfx.fillRect(_x, cy, _w, ch, rgb888(Tab5Theme::BG_DARK));
+
+    // Draw the tab bar
+    drawTabBar(gfx);
+
+    // Draw active page's children
+    if (_activePage >= 0 && _activePage < _pageCount) {
+        UITabPage& page = _pages[_activePage];
+        // Set clip to content area so children don't bleed into tab bar
+        gfx.setClipRect(_x, cy, _w, ch);
+        for (int i = 0; i < page.childCount; i++) {
+            if (page.children[i] && page.children[i]->isVisible()) {
+                page.children[i]->draw(gfx);
+                page.children[i]->setDirty(false);
+            }
+        }
+        gfx.clearClipRect();
+    }
+
+    _dirty = false;
+}
+
+void UITabView::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+
+    _pressed = true;
+    _touchedChild = nullptr;
+
+    // Check if touch is on the tab bar
+    if (hitTestTabBar(tx, ty)) {
+        int idx = tabIndexAt(tx, ty);
+        if (idx >= 0 && idx != _activePage) {
+            setActivePage(idx);
+        }
+        if (_onTouch) _onTouch(TouchEvent::TOUCH);
+        return;
+    }
+
+    // Touch is in the content area — dispatch to active page's children
+    if (_activePage >= 0 && _activePage < _pageCount) {
+        UITabPage& page = _pages[_activePage];
+        // Reverse iterate for z-order
+        for (int i = page.childCount - 1; i >= 0; --i) {
+            UIElement* child = page.children[i];
+            if (!child || !child->isVisible() || !child->isEnabled()) continue;
+
+            bool hit = child->isCircleIcon()
+                     ? static_cast<UIIconCircle*>(child)->hitTestCircle(tx, ty)
+                     : child->hitTest(tx, ty);
+
+            if (hit) {
+                _touchedChild = child;
+                child->handleTouchDown(tx, ty);
+                return;
+            }
+        }
+    }
+
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UITabView::handleTouchMove(int16_t tx, int16_t ty) {
+    if (_touchedChild) {
+        _touchedChild->handleTouchMove(tx, ty);
+        // If the child is dirty, the tab view is dirty too
+        if (_touchedChild->isDirty()) _dirty = true;
+    }
+}
+
+void UITabView::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_touchedChild) {
+        _touchedChild->handleTouchUp(tx, ty);
+        if (_touchedChild->isDirty()) _dirty = true;
+        _touchedChild = nullptr;
+    }
+    _pressed = false;
+    if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIInfoPopup
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1795,6 +2060,15 @@ void UIManager::drawAll() {
 }
 
 void UIManager::drawDirty() {
+    // For tab views: bubble up dirty state from active-page children
+    for (auto* elem : _elements) {
+        if (elem->isTabView() && elem->isVisible()) {
+            UITabView* tv = static_cast<UITabView*>(elem);
+            if (tv->hasActiveDirtyChild()) {
+                tv->setDirty(true);
+            }
+        }
+    }
     _gfx.startWrite();
     for (auto* elem : _elements) {
         if (elem->isVisible() && elem->isDirty()) {
