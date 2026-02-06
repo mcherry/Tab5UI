@@ -81,7 +81,7 @@ UIButton    btn(50, 100, 200, 52, "Press Me");
 
 void setup() {
     display.init();
-    display.setRotation(0);
+    display.setRotation(1);
     display.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
