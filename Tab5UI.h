@@ -42,6 +42,9 @@
 #define TAB5_KB_H           290     // Total keyboard panel height
 #define TAB5_INPUT_H        44      // Text input field height
 #define TAB5_INPUT_MAX_LEN  128     // Max text input length
+#define TAB5_LIST_ITEM_H    48      // List item row height
+#define TAB5_LIST_MAX_ITEMS 64      // Max items in a list
+#define TAB5_LIST_SCROLLBAR_W 6     // Scrollbar width
 #define TAB5_FONT_SIZE_SM   1.4f    // Small text
 #define TAB5_FONT_SIZE_MD   1.8f    // Medium text (labels, buttons)
 #define TAB5_FONT_SIZE_LG   2.4f    // Large text (title bar)
@@ -117,6 +120,7 @@ public:
 
     // Called by UIManager
     virtual void handleTouchDown(int16_t tx, int16_t ty);
+    virtual void handleTouchMove(int16_t tx, int16_t ty) {}
     virtual void handleTouchUp(int16_t tx, int16_t ty);
 
     // Type identification (avoids RTTI / dynamic_cast)
@@ -699,6 +703,99 @@ private:
                         int16_t* lineLengths, int maxLines);
 };
 
+/*******************************************************************************
+ * UIList — Scrollable list with selectable items
+ *
+ * Usage:
+ *   UIList myList(20, 60, 400, 500);
+ *   myList.addItem("Item 1");
+ *   myList.addItem("Item 2");
+ *   myList.addItem("Item 3");
+ *   myList.setOnSelect([](int index, const char* text) {
+ *       Serial.printf("Selected %d: %s\n", index, text);
+ *   });
+ *   ui.addElement(&myList);
+ *
+ * Touch-scroll by dragging up/down.  Tap an item to select it.
+ * Use getSelectedIndex() / getSelectedText() to query the selection.
+ ******************************************************************************/
+using ListSelectCallback = std::function<void(int index, const char* text)>;
+
+struct UIListItem {
+    char     text[64];
+    bool     enabled;
+
+    UIListItem() : enabled(true) { text[0] = '\0'; }
+};
+
+class UIList : public UIElement {
+public:
+    UIList(int16_t x, int16_t y, int16_t w, int16_t h,
+           uint32_t bgColor    = Tab5Theme::BG_MEDIUM,
+           uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
+           uint32_t selectColor = Tab5Theme::PRIMARY);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // ── Item management ──
+    int  addItem(const char* text);
+    void removeItem(int index);
+    void clearItems();
+    void setItemText(int index, const char* text);
+    void setItemEnabled(int index, bool enabled);
+    int  itemCount() const { return _itemCount; }
+
+    // ── Selection ──
+    int  getSelectedIndex() const { return _selectedIndex; }
+    const char* getSelectedText() const;
+    void setSelectedIndex(int index);
+    void clearSelection();
+
+    // ── Callbacks ──
+    void setOnSelect(ListSelectCallback cb) { _onSelect = cb; }
+
+    // ── Scroll ──
+    void scrollTo(int16_t offset);
+    void scrollToItem(int index);
+
+    // ── Colors ──
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setSelectColor(uint32_t c)    { _selectColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+    void setItemHeight(int16_t h)      { _itemH = h; _dirty = true; }
+
+private:
+    UIListItem _items[TAB5_LIST_MAX_ITEMS];
+    int        _itemCount     = 0;
+    int        _selectedIndex = -1;
+    int16_t    _scrollOffset  = 0;   // Pixels scrolled from top
+    int16_t    _itemH         = TAB5_LIST_ITEM_H;
+
+    uint32_t   _bgColor;
+    uint32_t   _textColor;
+    uint32_t   _selectColor;
+    uint32_t   _borderColor   = Tab5Theme::BORDER;
+
+    ListSelectCallback _onSelect = nullptr;
+
+    // Touch-scroll state
+    bool     _dragging      = false;
+    int16_t  _touchStartY   = 0;
+    int16_t  _scrollStart   = 0;
+    int16_t  _touchDownY    = 0;     // For tap-vs-drag detection
+    bool     _wasDrag        = false; // True if moved enough to be a drag
+    static constexpr int16_t DRAG_THRESHOLD = 8;  // px to distinguish tap from drag
+
+    int16_t  totalContentHeight() const { return _itemCount * _itemH; }
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    int      itemAtY(int16_t ty) const;
+};
+
 /******************************************************************************* * UIManager — Manages all UI elements, handles drawing and touch dispatch
  *****************************************************************************/
 class UIManager {
@@ -738,6 +835,8 @@ private:
     bool    _wasTouched     = false;
     int16_t _lastTouchX     = -1;
     int16_t _lastTouchY     = -1;
+    int16_t _touchStartX    = -1;
+    int16_t _touchStartY    = -1;
     UIElement* _touchedElem = nullptr;
 
     int16_t _contentTop    = 0;

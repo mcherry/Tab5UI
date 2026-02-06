@@ -1429,6 +1429,243 @@ void UIInfoPopup::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIList
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIList::UIList(int16_t x, int16_t y, int16_t w, int16_t h,
+               uint32_t bgColor, uint32_t textColor, uint32_t selectColor)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor), _textColor(textColor), _selectColor(selectColor)
+{
+}
+
+int UIList::addItem(const char* text) {
+    if (_itemCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    strncpy(_items[_itemCount].text, text, sizeof(_items[0].text) - 1);
+    _items[_itemCount].text[sizeof(_items[0].text) - 1] = '\0';
+    _items[_itemCount].enabled = true;
+    _dirty = true;
+    return _itemCount++;
+}
+
+void UIList::removeItem(int index) {
+    if (index < 0 || index >= _itemCount) return;
+    for (int i = index; i < _itemCount - 1; i++) {
+        _items[i] = _items[i + 1];
+    }
+    _itemCount--;
+    if (_selectedIndex == index) _selectedIndex = -1;
+    else if (_selectedIndex > index) _selectedIndex--;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIList::clearItems() {
+    _itemCount = 0;
+    _selectedIndex = -1;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UIList::setItemText(int index, const char* text) {
+    if (index < 0 || index >= _itemCount) return;
+    strncpy(_items[index].text, text, sizeof(_items[0].text) - 1);
+    _items[index].text[sizeof(_items[0].text) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIList::setItemEnabled(int index, bool enabled) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].enabled = enabled;
+    _dirty = true;
+}
+
+const char* UIList::getSelectedText() const {
+    if (_selectedIndex < 0 || _selectedIndex >= _itemCount) return "";
+    return _items[_selectedIndex].text;
+}
+
+void UIList::setSelectedIndex(int index) {
+    if (index < -1 || index >= _itemCount) return;
+    _selectedIndex = index;
+    _dirty = true;
+}
+
+void UIList::clearSelection() {
+    _selectedIndex = -1;
+    _dirty = true;
+}
+
+void UIList::scrollTo(int16_t offset) {
+    _scrollOffset = offset;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIList::scrollToItem(int index) {
+    if (index < 0 || index >= _itemCount) return;
+    int16_t itemTop = index * _itemH;
+    int16_t itemBottom = itemTop + _itemH;
+
+    // If item is above visible area, scroll up to it
+    if (itemTop < _scrollOffset) {
+        _scrollOffset = itemTop;
+    }
+    // If item is below visible area, scroll down
+    else if (itemBottom > _scrollOffset + _h) {
+        _scrollOffset = itemBottom - _h;
+    }
+    clampScroll();
+    _dirty = true;
+}
+
+int16_t UIList::maxScroll() const {
+    int16_t contentH = totalContentHeight();
+    if (contentH <= _h) return 0;
+    return contentH - _h;
+}
+
+void UIList::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+int UIList::itemAtY(int16_t ty) const {
+    if (ty < _y || ty >= _y + _h) return -1;
+    int16_t relY = ty - _y + _scrollOffset;
+    int idx = relY / _itemH;
+    if (idx < 0 || idx >= _itemCount) return -1;
+    return idx;
+}
+
+void UIList::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background fill
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Border
+    gfx.drawRect(_x, _y, _w, _h, rgb888(_borderColor));
+
+    // Clip region
+    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+
+    // Draw visible items
+    int16_t textAreaW = _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2;
+    for (int i = 0; i < _itemCount; i++) {
+        int16_t itemY = _y + (i * _itemH) - _scrollOffset;
+
+        // Skip items fully outside visible area
+        if (itemY + _itemH <= _y || itemY >= _y + _h) continue;
+
+        // Selected highlight
+        if (i == _selectedIndex) {
+            gfx.fillRect(_x + 1, itemY, _w - TAB5_LIST_SCROLLBAR_W - 2, _itemH,
+                         rgb888(_selectColor));
+        }
+
+        // Item text
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_left);
+
+        uint32_t tc;
+        if (!_items[i].enabled) {
+            tc = rgb888(Tab5Theme::TEXT_DISABLED);
+        } else if (i == _selectedIndex) {
+            tc = rgb888(Tab5Theme::TEXT_PRIMARY);
+        } else {
+            tc = rgb888(_textColor);
+        }
+        gfx.setTextColor(tc);
+        gfx.drawString(_items[i].text, _x + TAB5_PADDING, itemY + _itemH / 2);
+
+        // Divider between items
+        if (i < _itemCount - 1) {
+            int16_t divY = itemY + _itemH - 1;
+            gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+                              _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2,
+                              rgb888(Tab5Theme::DIVIDER));
+        }
+    }
+
+    // Clear clip
+    gfx.clearClipRect();
+
+    // Scrollbar (only if content overflows)
+    int16_t contentH = totalContentHeight();
+    if (contentH > _h) {
+        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbAreaH = _h - 2;
+
+        // Scrollbar track
+        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                     rgb888(darken(_bgColor, 60)));
+
+        // Scrollbar thumb
+        float visibleRatio = (float)_h / (float)contentH;
+        int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+        if (thumbH < 20) thumbH = 20;
+
+        float scrollRatio = (float)_scrollOffset / (float)maxScroll();
+        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+                                 3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    _dirty = false;
+}
+
+void UIList::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dragging = false;
+    _wasDrag = false;
+    _touchStartY = ty;
+    _touchDownY = ty;
+    _scrollStart = _scrollOffset;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIList::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+
+    int16_t dy = _touchStartY - ty;
+
+    // Check if movement exceeds drag threshold
+    int16_t totalDy = ty - _touchDownY;
+    if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+        _wasDrag = true;
+    }
+
+    if (_wasDrag) {
+        _scrollOffset = _scrollStart + dy;
+        clampScroll();
+        _dirty = true;
+    }
+}
+
+void UIList::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+    _pressed = false;
+
+    // If it was a tap (not a drag), select the item
+    if (!_wasDrag) {
+        int idx = itemAtY(ty);
+        if (idx >= 0 && idx < _itemCount && _items[idx].enabled) {
+            _selectedIndex = idx;
+            _dirty = true;
+            if (_onSelect) _onSelect(idx, _items[idx].text);
+        }
+    }
+
+    _dragging = false;
+    _wasDrag = false;
+    if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIManager
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1510,6 +1747,8 @@ void UIManager::update() {
 
         if (!_wasTouched) {
             _touchedElem = nullptr;
+            _touchStartX = tx;
+            _touchStartY = ty;
 
             // If a modal overlay is open, it captures all touch
             if (modalElem) {
@@ -1533,6 +1772,11 @@ void UIManager::update() {
                 }
             }
             _wasTouched = true;
+        } else if (_touchedElem) {
+            // Sustained touch — dispatch move event
+            if (tx != _lastTouchX || ty != _lastTouchY) {
+                _touchedElem->handleTouchMove(tx, ty);
+            }
         }
 
         _lastTouchX = tx;

@@ -16,6 +16,8 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIMenu** | Modal popup menu with selectable items, separators, and auto-dismiss |
 | **UITextInput** | Single-line text input field with placeholder and focus highlight |
 | **UIKeyboard** | Full-screen modal QWERTY touch keyboard with Shift, Symbols, and Hide |
+| **UIList** | Scrollable list with touch-drag scrolling, item selection, and scrollbar |
+| **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -81,7 +83,7 @@ UIButton    btn(50, 100, 200, 52, "Press Me");
 
 void setup() {
     display.init();
-    display.setRotation(1);
+    display.setRotation(1);           // Landscape
     display.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
@@ -128,6 +130,9 @@ void loop() {
 | `TAB5_KB_H` | 290 | Keyboard panel height |
 | `TAB5_INPUT_H` | 44 | Text input field height |
 | `TAB5_INPUT_MAX_LEN` | 128 | Max text input length |
+| `TAB5_LIST_ITEM_H` | 48 | List item row height |
+| `TAB5_LIST_MAX_ITEMS` | 64 | Max items in a list |
+| `TAB5_LIST_SCROLLBAR_W` | 6 | Scrollbar width |
 | `TAB5_PADDING` | 12 | General padding |
 
 ### Theme Colors (`Tab5Theme::`)
@@ -313,6 +318,68 @@ highlights the border.  Characters are inserted at the cursor.  Pressing
 Done fires the `onSubmit` callback and closes the keyboard.  Pressing
 Hide (↓) closes the keyboard without firing `onSubmit`.
 
+### UIList
+
+```cpp
+UIList(x, y, w, h, bgColor, textColor, selectColor);
+int  addItem(const char* text);       // Returns item index
+void removeItem(int index);
+void clearItems();
+void setItemText(int index, const char* text);
+void setItemEnabled(int index, bool enabled);
+int  itemCount() const;
+
+// Selection
+int  getSelectedIndex() const;        // -1 if none
+const char* getSelectedText() const;  // "" if none
+void setSelectedIndex(int index);
+void clearSelection();
+
+// Scrolling
+void scrollTo(int16_t offset);        // Pixel offset from top
+void scrollToItem(int index);         // Ensure item is visible
+
+// Callbacks
+void setOnSelect(ListSelectCallback cb); // void(int index, const char* text)
+
+// Appearance
+void setBgColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setSelectColor(uint32_t c);      // Highlight color for selected item
+void setBorderColor(uint32_t c);
+void setItemHeight(int16_t h);        // Default: 48px
+```
+
+**Behavior:** Drag up/down to scroll through the list. Tap an item to
+select it (highlighted in the selection color). The widget distinguishes
+taps from drags using an 8px threshold. A scrollbar appears automatically
+when content overflows the visible area. Up to 64 items are supported.
+Disabled items are drawn in gray and cannot be selected.
+
+### UIInfoPopup
+
+```cpp
+UIInfoPopup("Title", "Message text");
+void show();                          // Display centered, auto-sized
+void hide();
+bool isOpen() const;
+void setTitle(const char* title);
+void setMessage(const char* msg);
+void setButtonLabel(const char* label); // Default: "OK"
+void setOnDismiss(TouchCallback cb);
+void setBgColor(uint32_t c);
+void setTitleColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setBtnColor(uint32_t c);
+void setBorderColor(uint32_t c);
+```
+
+**Behavior:** The popup auto-sizes to fit its title and message text,
+word-wrapping long messages.  Dimensions are clamped so the popup never
+exceeds the screen (40px margin on each side).  It is always centered.
+Tapping the OK button or outside the popup dismisses it.  The popup is
+modal — it captures all touch input while visible.
+
 ### UIManager
 
 ```cpp
@@ -340,9 +407,18 @@ Tab5UI/
 ├── library.properties                # Arduino IDE metadata
 ├── library.json                      # PlatformIO metadata
 ├── README.md                         # This file
+├── LICENSE                           # GNU GPL v3
+├── screenshots/                      # Demo screenshots
+│   ├── screenshot1_initial.png
+│   ├── screenshot2_menu.png
+│   ├── screenshot3_keyboard.png
+│   ├── screenshot4_popup.png
+│   └── screenshot5_list.png
 └── examples/
-    └── Tab5UI_Demo/
-        └── Tab5UI_Demo.ino           # Full demo sketch
+    ├── Tab5UI_Demo/
+    │   └── Tab5UI_Demo.ino           # Full demo sketch
+    └── Tab5UI_List_Demo/
+        └── Tab5UI_List_Demo.ino      # List widget demo
 ```
 
 ---
@@ -374,6 +450,9 @@ Tab5UI/
 
 ### Info Popup
 ![Info popup](screenshots/screenshot4_popup.png)
+
+### List Demo
+![List demo](screenshots/screenshot5_list.png)
 
 ## License
 
