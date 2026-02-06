@@ -1,0 +1,1563 @@
+/*******************************************************************************
+ * Tab5UI.cpp - Touchscreen UI Library for M5Stack Tab5
+ *
+ * Implementation of all UI widget classes.
+ ******************************************************************************/
+#include "Tab5UI.h"
+#include <string.h>
+#include <algorithm>
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Helper: Convert 24-bit RGB888 to M5GFX-compatible uint32_t color
+// ─────────────────────────────────────────────────────────────────────────────
+static inline uint32_t rgb888(uint32_t c) {
+    return (uint32_t)lgfx::color888((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+}
+
+// Darken a color for pressed states
+static inline uint32_t darken(uint32_t c, uint8_t amount = 40) {
+    uint8_t r = ((c >> 16) & 0xFF);
+    uint8_t g = ((c >> 8)  & 0xFF);
+    uint8_t b = ( c        & 0xFF);
+    r = (r > amount) ? r - amount : 0;
+    g = (g > amount) ? g - amount : 0;
+    b = (b > amount) ? b - amount : 0;
+    return (uint32_t)((r << 16) | (g << 8) | b);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIElement — Base class
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIElement::UIElement(int16_t x, int16_t y, int16_t w, int16_t h)
+    : _x(x), _y(y), _w(w), _h(h) {}
+
+void UIElement::setPosition(int16_t x, int16_t y) {
+    _x = x; _y = y; _dirty = true;
+}
+
+void UIElement::setSize(int16_t w, int16_t h) {
+    _w = w; _h = h; _dirty = true;
+}
+
+bool UIElement::hitTest(int16_t tx, int16_t ty) const {
+    return _visible && _enabled &&
+           tx >= _x && tx < (_x + _w) &&
+           ty >= _y && ty < (_y + _h);
+}
+
+void UIElement::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIElement::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UILabel
+// ═════════════════════════════════════════════════════════════════════════════
+
+UILabel::UILabel(int16_t x, int16_t y, int16_t w, int16_t h,
+                 const char* text, uint32_t textColor, float textSize)
+    : UIElement(x, y, w, h)
+    , _textColor(textColor)
+    , _textSize(textSize)
+{
+    strncpy(_text, text, sizeof(_text) - 1);
+    _text[sizeof(_text) - 1] = '\0';
+}
+
+void UILabel::setText(const char* text) {
+    strncpy(_text, text, sizeof(_text) - 1);
+    _text[sizeof(_text) - 1] = '\0';
+    _dirty = true;
+}
+
+void UILabel::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background
+    if (_hasBg) {
+        gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    }
+
+    // Text
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(_align);
+    gfx.setTextColor(rgb888(_textColor));
+
+    int16_t tx = _x + TAB5_PADDING;
+    int16_t ty = _y + _h / 2;
+
+    if (_align == textdatum_t::middle_center || _align == textdatum_t::top_center) {
+        tx = _x + _w / 2;
+    } else if (_align == textdatum_t::middle_right || _align == textdatum_t::top_right) {
+        tx = _x + _w - TAB5_PADDING;
+    }
+
+    gfx.drawString(_text, tx, ty);
+    _dirty = false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIButton
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIButton::UIButton(int16_t x, int16_t y, int16_t w, int16_t h,
+                   const char* label, uint32_t bgColor,
+                   uint32_t textColor, float textSize)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor)
+    , _pressedColor(darken(bgColor))
+    , _textColor(textColor)
+    , _textSize(textSize)
+{
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+}
+
+void UIButton::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIButton::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    uint32_t bg = _pressed ? rgb888(_pressedColor) : rgb888(_bgColor);
+
+    if (!_enabled) {
+        bg = rgb888(Tab5Theme::BORDER);
+    }
+
+    // Rounded rectangle body
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, _radius, bg);
+
+    // Optional border
+    if (_hasBorder) {
+        gfx.drawRoundRect(_x, _y, _w, _h, _radius, rgb888(_borderColor));
+    }
+
+    // Centered label text
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::middle_center);
+
+    uint32_t tc = _enabled ? rgb888(_textColor) : rgb888(Tab5Theme::TEXT_DISABLED);
+    gfx.setTextColor(tc);
+    gfx.drawString(_label, _x + _w / 2, _y + _h / 2);
+
+    _dirty = false;
+}
+
+void UIButton::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIButton::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UITitleBar
+// ═════════════════════════════════════════════════════════════════════════════
+
+UITitleBar::UITitleBar(const char* title, uint32_t bgColor, uint32_t textColor)
+    : UIElement(0, 0, TAB5_SCREEN_W, TAB5_TITLE_H)
+    , _bgColor(bgColor)
+    , _textColor(textColor)
+{
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    _leftText[0] = '\0';
+    _rightText[0] = '\0';
+}
+
+void UITitleBar::setTitle(const char* title) {
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITitleBar::setLeftText(const char* text) {
+    strncpy(_leftText, text, sizeof(_leftText) - 1);
+    _leftText[sizeof(_leftText) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITitleBar::setRightText(const char* text) {
+    strncpy(_rightText, text, sizeof(_rightText) - 1);
+    _rightText[sizeof(_rightText) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITitleBar::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Bottom divider line
+    gfx.drawFastHLine(_x, _y + _h - 1, _w, rgb888(Tab5Theme::DIVIDER));
+
+    // Center title
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    gfx.setTextDatum(textdatum_t::middle_center);
+    gfx.setTextColor(rgb888(_textColor));
+    gfx.drawString(_title, _w / 2, _h / 2);
+
+    // Left text (e.g. "< Back")
+    if (_leftText[0] != '\0') {
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_left);
+        uint32_t lc = _leftPressed ? rgb888(Tab5Theme::ACCENT) : rgb888(_textColor);
+        gfx.setTextColor(lc);
+        gfx.drawString(_leftText, TAB5_PADDING, _h / 2);
+    }
+
+    // Right text (e.g. "Menu")
+    if (_rightText[0] != '\0') {
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_right);
+        uint32_t rc = _rightPressed ? rgb888(Tab5Theme::ACCENT) : rgb888(_textColor);
+        gfx.setTextColor(rc);
+        gfx.drawString(_rightText, _w - TAB5_PADDING, _h / 2);
+    }
+
+    _dirty = false;
+}
+
+void UITitleBar::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+
+    // Check left zone
+    if (_leftText[0] != '\0' && tx < ZONE_W) {
+        _leftPressed = true;
+        _dirty = true;
+        if (_onLeftTouch) _onLeftTouch(TouchEvent::TOUCH);
+        return;
+    }
+    // Check right zone
+    if (_rightText[0] != '\0' && tx > (_w - ZONE_W)) {
+        _rightPressed = true;
+        _dirty = true;
+        if (_onRightTouch) _onRightTouch(TouchEvent::TOUCH);
+        return;
+    }
+
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UITitleBar::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_leftPressed) {
+        _leftPressed = false;
+        _dirty = true;
+        if (_onLeftTouch) _onLeftTouch(TouchEvent::TOUCH_RELEASE);
+    }
+    if (_rightPressed) {
+        _rightPressed = false;
+        _dirty = true;
+        if (_onRightTouch) _onRightTouch(TouchEvent::TOUCH_RELEASE);
+    }
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIStatusBar
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIStatusBar::UIStatusBar(const char* text, uint32_t bgColor, uint32_t textColor)
+    : UIElement(0, TAB5_SCREEN_H - TAB5_STATUS_H, TAB5_SCREEN_W, TAB5_STATUS_H)
+    , _bgColor(bgColor)
+    , _textColor(textColor)
+{
+    strncpy(_text, text, sizeof(_text) - 1);
+    _text[sizeof(_text) - 1] = '\0';
+    _leftText[0] = '\0';
+    _rightText[0] = '\0';
+}
+
+void UIStatusBar::setText(const char* text) {
+    strncpy(_text, text, sizeof(_text) - 1);
+    _text[sizeof(_text) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIStatusBar::setLeftText(const char* text) {
+    strncpy(_leftText, text, sizeof(_leftText) - 1);
+    _leftText[sizeof(_leftText) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIStatusBar::setRightText(const char* text) {
+    strncpy(_rightText, text, sizeof(_rightText) - 1);
+    _rightText[sizeof(_rightText) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIStatusBar::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Top divider line
+    gfx.drawFastHLine(_x, _y, _w, rgb888(Tab5Theme::DIVIDER));
+
+    gfx.setTextSize(TAB5_FONT_SIZE_SM);
+    gfx.setTextColor(rgb888(_textColor));
+
+    // Center text
+    if (_text[0] != '\0') {
+        gfx.setTextDatum(textdatum_t::middle_center);
+        gfx.drawString(_text, _w / 2, _y + _h / 2);
+    }
+
+    // Left text
+    if (_leftText[0] != '\0') {
+        gfx.setTextDatum(textdatum_t::middle_left);
+        gfx.drawString(_leftText, _x + TAB5_PADDING, _y + _h / 2);
+    }
+
+    // Right text
+    if (_rightText[0] != '\0') {
+        gfx.setTextDatum(textdatum_t::middle_right);
+        gfx.drawString(_rightText, _x + _w - TAB5_PADDING, _y + _h / 2);
+    }
+
+    _dirty = false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UITextRow
+// ═════════════════════════════════════════════════════════════════════════════
+
+UITextRow::UITextRow(int16_t x, int16_t y, int16_t w,
+                     const char* label, const char* value,
+                     uint32_t bgColor, uint32_t labelColor, uint32_t valueColor)
+    : UIElement(x, y, w, TAB5_TEXTROW_H)
+    , _bgColor(bgColor)
+    , _labelColor(labelColor)
+    , _valueColor(valueColor)
+{
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    strncpy(_value, value, sizeof(_value) - 1);
+    _value[sizeof(_value) - 1] = '\0';
+}
+
+void UITextRow::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITextRow::setValue(const char* value) {
+    strncpy(_value, value, sizeof(_value) - 1);
+    _value[sizeof(_value) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITextRow::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background
+    uint32_t bg = _pressed ? rgb888(darken(_bgColor, 20)) : rgb888(_bgColor);
+    gfx.fillRect(_x, _y, _w, _h, bg);
+
+    // Label (left aligned)
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_left);
+    gfx.setTextColor(rgb888(_labelColor));
+    gfx.drawString(_label, _x + TAB5_PADDING, _y + _h / 2);
+
+    // Value (right aligned)
+    if (_value[0] != '\0') {
+        gfx.setTextDatum(textdatum_t::middle_right);
+        gfx.setTextColor(rgb888(_valueColor));
+        gfx.drawString(_value, _x + _w - TAB5_PADDING, _y + _h / 2);
+    }
+
+    // Bottom divider
+    if (_showDivider) {
+        gfx.drawFastHLine(_x + TAB5_PADDING, _y + _h - 1,
+                          _w - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
+    }
+
+    _dirty = false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIIconSquare
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIIconSquare::UIIconSquare(int16_t x, int16_t y, int16_t size,
+                           uint32_t fillColor, uint32_t borderColor)
+    : UIElement(x, y, size, size)
+    , _fillColor(fillColor)
+    , _borderColor(borderColor)
+    , _pressedColor(darken(fillColor))
+{}
+
+void UIIconSquare::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    uint32_t fc = _pressed ? rgb888(_pressedColor) : rgb888(_fillColor);
+
+    // Filled rounded square
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, _radius, fc);
+
+    // Border
+    gfx.drawRoundRect(_x, _y, _w, _h, _radius, rgb888(_borderColor));
+
+    // Icon character
+    if (_iconChar[0] != '\0') {
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_center);
+        gfx.setTextColor(rgb888(_iconCharColor));
+        gfx.drawString(_iconChar, _x + _w / 2, _y + _h / 2);
+    }
+
+    _dirty = false;
+}
+
+void UIIconSquare::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIIconSquare::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIIconCircle
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIIconCircle::UIIconCircle(int16_t x, int16_t y, int16_t radius,
+                           uint32_t fillColor, uint32_t borderColor)
+    : UIElement(x, y, radius * 2, radius * 2)
+    , _circRadius(radius)
+    , _fillColor(fillColor)
+    , _borderColor(borderColor)
+    , _pressedColor(darken(fillColor))
+{}
+
+bool UIIconCircle::hitTestCircle(int16_t tx, int16_t ty) const {
+    if (!_visible || !_enabled) return false;
+    int16_t cx = _x + _circRadius;
+    int16_t cy = _y + _circRadius;
+    int32_t dx = tx - cx;
+    int32_t dy = ty - cy;
+    return (dx * dx + dy * dy) <= (_circRadius * _circRadius);
+}
+
+void UIIconCircle::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    int16_t cx = _x + _circRadius;
+    int16_t cy = _y + _circRadius;
+
+    uint32_t fc = _pressed ? rgb888(_pressedColor) : rgb888(_fillColor);
+
+    // Filled circle
+    gfx.fillSmoothCircle(cx, cy, _circRadius, fc);
+
+    // Border
+    gfx.drawCircle(cx, cy, _circRadius, rgb888(_borderColor));
+
+    // Icon character
+    if (_iconChar[0] != '\0') {
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_center);
+        gfx.setTextColor(rgb888(_iconCharColor));
+        gfx.drawString(_iconChar, cx, cy);
+    }
+
+    _dirty = false;
+}
+
+void UIIconCircle::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTestCircle(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIIconCircle::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIMenu
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIMenu::UIMenu(int16_t x, int16_t y, int16_t w,
+               uint32_t bgColor, uint32_t textColor, uint32_t hlColor)
+    : UIElement(x, y, w, TAB5_PADDING * 2)  // height recalculated on addItem
+    , _bgColor(bgColor)
+    , _textColor(textColor)
+    , _hlColor(hlColor)
+{
+    _visible = false;   // menus start hidden
+}
+
+void UIMenu::recalcHeight() {
+    // Top + bottom padding, each item is TAB5_MENU_ITEM_H (separators are thinner)
+    int16_t h = TAB5_PADDING;  // top padding
+    for (int i = 0; i < _itemCount; ++i) {
+        h += _items[i].separator ? (TAB5_PADDING + 1) : TAB5_MENU_ITEM_H;
+    }
+    h += TAB5_PADDING / 2;     // bottom padding
+    _h = h;
+}
+
+int UIMenu::addItem(const char* label, TouchCallback onSelect) {
+    if (_itemCount >= TAB5_MENU_MAX_ITEMS) return -1;
+    UIMenuItem& item = _items[_itemCount];
+    strncpy(item.label, label, sizeof(item.label) - 1);
+    item.label[sizeof(item.label) - 1] = '\0';
+    item.enabled   = true;
+    item.separator = false;
+    item.onSelect  = onSelect;
+    _itemCount++;
+    recalcHeight();
+    _dirty = true;
+    return _itemCount - 1;
+}
+
+void UIMenu::addSeparator() {
+    if (_itemCount >= TAB5_MENU_MAX_ITEMS) return;
+    UIMenuItem& item = _items[_itemCount];
+    item.label[0]  = '\0';
+    item.enabled   = true;
+    item.separator = true;
+    item.onSelect  = nullptr;
+    _itemCount++;
+    recalcHeight();
+    _dirty = true;
+}
+
+void UIMenu::clearItems() {
+    _itemCount = 0;
+    _pressedIndex = -1;
+    recalcHeight();
+    _dirty = true;
+}
+
+void UIMenu::setItemEnabled(int index, bool enabled) {
+    if (index >= 0 && index < _itemCount) {
+        _items[index].enabled = enabled;
+        _dirty = true;
+    }
+}
+
+void UIMenu::setItemLabel(int index, const char* label) {
+    if (index >= 0 && index < _itemCount) {
+        strncpy(_items[index].label, label, sizeof(_items[index].label) - 1);
+        _items[index].label[sizeof(_items[index].label) - 1] = '\0';
+        _dirty = true;
+    }
+}
+
+void UIMenu::show() {
+    _visible = true;
+    _pressedIndex = -1;
+    _dirty = true;
+}
+
+void UIMenu::hide() {
+    _visible = false;
+    _pressedIndex = -1;
+    _dirty = true;
+}
+
+int UIMenu::itemIndexAt(int16_t tx, int16_t ty) const {
+    if (tx < _x || tx >= _x + _w) return -1;
+
+    int16_t yOff = _y + TAB5_PADDING;  // past top padding
+    for (int i = 0; i < _itemCount; ++i) {
+        int16_t itemH = _items[i].separator ? (TAB5_PADDING + 1) : TAB5_MENU_ITEM_H;
+        if (ty >= yOff && ty < yOff + itemH) {
+            if (_items[i].separator) return -1;  // separators aren't selectable
+            return i;
+        }
+        yOff += itemH;
+    }
+    return -1;
+}
+
+void UIMenu::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Shadow (offset dark rect)
+    gfx.fillRect(_x + 3, _y + 3, _w, _h, rgb888(0x0A0A14));
+
+    // Background
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 6, rgb888(_bgColor));
+
+    // Border
+    gfx.drawRoundRect(_x, _y, _w, _h, 6, rgb888(_borderColor));
+
+    // Items
+    int16_t yOff = _y + TAB5_PADDING;
+    for (int i = 0; i < _itemCount; ++i) {
+        const UIMenuItem& item = _items[i];
+
+        if (item.separator) {
+            // Horizontal divider
+            int16_t lineY = yOff + TAB5_PADDING / 2;
+            gfx.drawFastHLine(_x + TAB5_PADDING, lineY,
+                              _w - TAB5_PADDING * 2,
+                              rgb888(Tab5Theme::DIVIDER));
+            yOff += TAB5_PADDING + 1;
+            continue;
+        }
+
+        // Highlight for pressed item
+        if (i == _pressedIndex && item.enabled) {
+            gfx.fillRect(_x + 2, yOff, _w - 4, TAB5_MENU_ITEM_H,
+                         rgb888(_hlColor));
+        }
+
+        // Label
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_left);
+
+        uint32_t tc = item.enabled
+                    ? rgb888(_textColor)
+                    : rgb888(Tab5Theme::TEXT_DISABLED);
+        // When pressed, keep text white for contrast on highlight
+        if (i == _pressedIndex && item.enabled) {
+            tc = rgb888(Tab5Theme::TEXT_PRIMARY);
+        }
+        gfx.setTextColor(tc);
+        gfx.drawString(item.label, _x + TAB5_PADDING, yOff + TAB5_MENU_ITEM_H / 2);
+
+        yOff += TAB5_MENU_ITEM_H;
+    }
+
+    _dirty = false;
+}
+
+void UIMenu::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    int idx = itemIndexAt(tx, ty);
+    if (idx >= 0 && _items[idx].enabled) {
+        _pressedIndex = idx;
+        _dirty = true;
+    }
+}
+
+void UIMenu::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    // If touch is inside the menu body
+    if (hitTest(tx, ty)) {
+        int idx = itemIndexAt(tx, ty);
+        if (idx >= 0 && idx == _pressedIndex && _items[idx].enabled) {
+            // Fire the item callback
+            if (_items[idx].onSelect) {
+                _items[idx].onSelect(TouchEvent::TOUCH_RELEASE);
+            }
+            hide();  // auto-close after selection
+        } else {
+            _pressedIndex = -1;
+            _dirty = true;
+        }
+    } else {
+        // Touch outside — dismiss
+        hide();
+        if (_onDismiss) _onDismiss(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIKeyboard
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Helper to set a key in a layout row
+static void setKey(UIKey& k, const char* label, char value,
+                   float wm = 1.0f, uint32_t bg = Tab5Theme::SURFACE) {
+    strncpy(k.label, label, sizeof(k.label) - 1);
+    k.label[sizeof(k.label) - 1] = '\0';
+    k.value     = value;
+    k.widthMult = wm;
+    k.bgColor   = bg;
+}
+
+UIKeyboard::UIKeyboard()
+    : UIElement(0, TAB5_SCREEN_H - TAB5_KB_H, TAB5_SCREEN_W, TAB5_KB_H)
+{
+    _visible = false;
+    buildLayouts();
+    setLayer(LOWER);
+}
+
+void UIKeyboard::buildRow(UIKey* dst, int& count, const char* chars, int len) {
+    count = len;
+    for (int i = 0; i < len; ++i) {
+        char lbl[2] = { chars[i], '\0' };
+        setKey(dst[i], lbl, chars[i]);
+    }
+}
+
+void UIKeyboard::buildLayouts() {
+    // ─── LOWERCASE ───
+    {
+        const char r0[] = "qwertyuiop";
+        buildRow(_keysLower[0], _colsLower[0], r0, 10);
+
+        const char r1[] = "asdfghjkl";
+        buildRow(_keysLower[1], _colsLower[1], r1, 9);
+
+        // Row 2: Shift + zxcvbnm + Backspace
+        _colsLower[2] = 9;
+        setKey(_keysLower[2][0], "Shft", 0, 1.4f, Tab5Theme::BG_MEDIUM);  // Shift
+        const char r2[] = "zxcvbnm";
+        for (int i = 0; i < 7; ++i) {
+            char lbl[2] = { r2[i], '\0' };
+            setKey(_keysLower[2][i + 1], lbl, r2[i]);
+        }
+        setKey(_keysLower[2][8], "Bksp", '\b', 1.4f, Tab5Theme::BG_MEDIUM); // Backspace
+
+        // Row 3: 123 + Space + . + Done + Hide
+        _colsLower[3] = 5;
+        setKey(_keysLower[3][0], "123",  0, 1.4f, Tab5Theme::BG_MEDIUM);
+        setKey(_keysLower[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);      // Space bar
+        setKey(_keysLower[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
+        setKey(_keysLower[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
+        setKey(_keysLower[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM); // Hide
+    }
+
+    // ─── UPPERCASE ───
+    {
+        const char r0[] = "QWERTYUIOP";
+        buildRow(_keysUpper[0], _colsUpper[0], r0, 10);
+
+        const char r1[] = "ASDFGHJKL";
+        buildRow(_keysUpper[1], _colsUpper[1], r1, 9);
+
+        _colsUpper[2] = 9;
+        setKey(_keysUpper[2][0], "Shft", 0, 1.4f, Tab5Theme::PRIMARY);  // Shift active
+        const char r2[] = "ZXCVBNM";
+        for (int i = 0; i < 7; ++i) {
+            char lbl[2] = { r2[i], '\0' };
+            setKey(_keysUpper[2][i + 1], lbl, r2[i]);
+        }
+        setKey(_keysUpper[2][8], "Bksp", '\b', 1.4f, Tab5Theme::BG_MEDIUM);
+
+        _colsUpper[3] = 5;
+        setKey(_keysUpper[3][0], "123",  0, 1.4f, Tab5Theme::BG_MEDIUM);
+        setKey(_keysUpper[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);
+        setKey(_keysUpper[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
+        setKey(_keysUpper[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
+        setKey(_keysUpper[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM);
+    }
+
+    // ─── SYMBOLS ───
+    {
+        const char r0[] = "1234567890";
+        buildRow(_keysSymbols[0], _colsSymbols[0], r0, 10);
+
+        _colsSymbols[1] = 10;
+        const char s1[] = "-/:;()$&@\"";
+        for (int i = 0; i < 10; ++i) {
+            char lbl[2] = { s1[i], '\0' };
+            setKey(_keysSymbols[1][i], lbl, s1[i]);
+        }
+
+        _colsSymbols[2] = 9;
+        setKey(_keysSymbols[2][0], "ABC", 0, 1.4f, Tab5Theme::BG_MEDIUM);
+        const char s2[] = ".,?!'_#%";
+        for (int i = 0; i < (int)strlen(s2); ++i) {
+            char lbl[2] = { s2[i], '\0' };
+            // Handle special display for some chars
+            setKey(_keysSymbols[2][i + 1], lbl, s2[i]);
+        }
+
+        // Pad with a dummy if needed to leave room for backspace
+        // s2 has 8 chars → indices 1..8, backspace at 9 → but max 9 so index 8
+        // Actually: index 0=ABC, 1..8=chars, total=9 — let's trim to 8 chars +backspace
+        // s2 has 8 chars → 0=ABC, 1-8=8chars = 9 entries. Need backspace too.
+        // Adjust: use only 7 symbol chars in row 2 + ABC + backspace = 9
+        _colsSymbols[2] = 9;
+        setKey(_keysSymbols[2][0], "ABC", 0, 1.4f, Tab5Theme::BG_MEDIUM);
+        const char s2b[] = ".,?!'_#";
+        for (int i = 0; i < 7; ++i) {
+            char lbl[2] = { s2b[i], '\0' };
+            setKey(_keysSymbols[2][i + 1], lbl, s2b[i]);
+        }
+        setKey(_keysSymbols[2][8], "Bksp", '\b', 1.4f, Tab5Theme::BG_MEDIUM);
+
+        _colsSymbols[3] = 5;
+        setKey(_keysSymbols[3][0], "ABC",  0, 1.4f, Tab5Theme::BG_MEDIUM);
+        setKey(_keysSymbols[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);
+        setKey(_keysSymbols[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
+        setKey(_keysSymbols[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
+        setKey(_keysSymbols[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM);
+    }
+}
+
+void UIKeyboard::setLayer(Layer layer) {
+    _layer = layer;
+    switch (layer) {
+        case UPPER:   _keys = _keysUpper;   _cols = _colsUpper;   break;
+        case SYMBOLS: _keys = _keysSymbols; _cols = _colsSymbols; break;
+        default:      _keys = _keysLower;   _cols = _colsLower;   break;
+    }
+    _dirty = true;
+}
+
+void UIKeyboard::show() {
+    _visible = true;
+    _pressedRow = -1;
+    _pressedCol = -1;
+    setLayer(LOWER);
+    _dirty = true;
+}
+
+void UIKeyboard::hide() {
+    _visible = false;
+    _pressedRow = -1;
+    _pressedCol = -1;
+    _dirty = true;
+}
+
+void UIKeyboard::keyRect(int row, int col,
+                          int16_t& kx, int16_t& ky,
+                          int16_t& kw, int16_t& kh) const {
+    kh = TAB5_KB_KEY_H;
+    ky = _y + TAB5_PADDING + row * (TAB5_KB_KEY_H + TAB5_KB_KEY_GAP);
+
+    // Calculate total width units for this row to center the row
+    float totalUnits = 0;
+    for (int c = 0; c < _cols[row]; ++c) {
+        totalUnits += _keys[row][c].widthMult;
+    }
+    float unitW = (float)(TAB5_KB_KEY_W + TAB5_KB_KEY_GAP);
+    float rowPixelW = totalUnits * unitW - TAB5_KB_KEY_GAP;
+    float startX = (_w - rowPixelW) / 2.0f;
+
+    float cx = startX;
+    for (int c = 0; c < col; ++c) {
+        cx += _keys[row][c].widthMult * unitW;
+    }
+    kx = _x + (int16_t)cx;
+    kw = (int16_t)(_keys[row][col].widthMult * unitW) - TAB5_KB_KEY_GAP;
+}
+
+bool UIKeyboard::keyAt(int16_t tx, int16_t ty, int& row, int& col) const {
+    for (int r = 0; r < TAB5_KB_ROWS; ++r) {
+        int16_t kx, ky, kw, kh;
+        for (int c = 0; c < _cols[r]; ++c) {
+            keyRect(r, c, kx, ky, kw, kh);
+            if (tx >= kx && tx < kx + kw && ty >= ky && ty < ky + kh) {
+                row = r;
+                col = c;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void UIKeyboard::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background panel
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    // Top border
+    gfx.drawFastHLine(_x, _y, _w, rgb888(Tab5Theme::BORDER));
+
+    // Draw each key
+    for (int r = 0; r < TAB5_KB_ROWS; ++r) {
+        for (int c = 0; c < _cols[r]; ++c) {
+            int16_t kx, ky, kw, kh;
+            keyRect(r, c, kx, ky, kw, kh);
+
+            const UIKey& key = _keys[r][c];
+            bool isPressed = (r == _pressedRow && c == _pressedCol);
+
+            uint32_t bg = isPressed
+                        ? rgb888(darken(key.bgColor, 30))
+                        : rgb888(key.bgColor);
+
+            gfx.fillSmoothRoundRect(kx, ky, kw, kh, 4, bg);
+
+            // Key label
+            gfx.setTextSize(TAB5_FONT_SIZE_MD);
+            gfx.setTextDatum(textdatum_t::middle_center);
+            gfx.setTextColor(rgb888(_textColor));
+            gfx.drawString(key.label, kx + kw / 2, ky + kh / 2);
+        }
+    }
+
+    _dirty = false;
+}
+
+void UIKeyboard::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    int row, col;
+    if (keyAt(tx, ty, row, col)) {
+        _pressedRow = row;
+        _pressedCol = col;
+        _dirty = true;
+    }
+}
+
+void UIKeyboard::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    int row, col;
+    if (keyAt(tx, ty, row, col) && row == _pressedRow && col == _pressedCol) {
+        const UIKey& key = _keys[row][col];
+
+        if (key.value != 0) {
+            // Regular character or special (backspace, enter, hide)
+            if (key.value == '\0') {
+                // Hide key
+                hide();
+            }
+            if (_onKey) _onKey(key.value);
+
+            // After typing a letter in UPPER mode, revert to LOWER
+            if (_layer == UPPER && key.value >= 'A' && key.value <= 'Z') {
+                setLayer(LOWER);
+            }
+        } else {
+            // Special mode-switch keys (value == 0, label determines action)
+            if (strcmp(key.label, "Shft") == 0) {
+                // Shift toggle
+                setLayer(_layer == UPPER ? LOWER : UPPER);
+            } else if (strcmp(key.label, "123") == 0) {
+                setLayer(SYMBOLS);
+            } else if (strcmp(key.label, "ABC") == 0) {
+                setLayer(LOWER);
+            } else if (strcmp(key.label, "Hide") == 0) {
+                // Hide
+                hide();
+                if (_onKey) _onKey('\0');
+            }
+        }
+    }
+
+    _pressedRow = -1;
+    _pressedCol = -1;
+    _dirty = true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UITextInput
+// ═════════════════════════════════════════════════════════════════════════════
+
+UITextInput::UITextInput(int16_t x, int16_t y, int16_t w,
+                         const char* placeholder, int16_t h,
+                         uint32_t bgColor, uint32_t textColor,
+                         uint32_t borderColor)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor)
+    , _textColor(textColor)
+    , _borderColor(borderColor)
+{
+    _text[0] = '\0';
+    strncpy(_placeholder, placeholder, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+}
+
+void UITextInput::setText(const char* text) {
+    strncpy(_text, text, _maxLen);
+    _text[_maxLen] = '\0';
+    _cursorPos = (int)strlen(_text);
+    _dirty = true;
+}
+
+void UITextInput::clear() {
+    _text[0] = '\0';
+    _cursorPos = 0;
+    _dirty = true;
+}
+
+void UITextInput::setPlaceholder(const char* ph) {
+    strncpy(_placeholder, ph, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITextInput::focus() {
+    if (_focused) return;
+    _focused = true;
+    _dirty = true;
+    if (_keyboard) {
+        _keyboard->setOnKey([this](char ch) { this->onKeyPress(ch); });
+        _keyboard->show();
+    }
+}
+
+void UITextInput::blur() {
+    if (!_focused) return;
+    _focused = false;
+    _dirty = true;
+    if (_keyboard && _keyboard->isOpen()) {
+        _keyboard->hide();
+    }
+}
+
+void UITextInput::onKeyPress(char ch) {
+    if (ch == '\0') {
+        // Hide key pressed
+        blur();
+        return;
+    }
+    if (ch == '\n') {
+        // Enter/Done
+        if (_onSubmit) _onSubmit(_text);
+        blur();
+        return;
+    }
+    if (ch == '\b') {
+        // Backspace
+        if (_cursorPos > 0) {
+            _cursorPos--;
+            _text[_cursorPos] = '\0';
+            _dirty = true;
+            if (_onChange) _onChange(_text);
+        }
+        return;
+    }
+    // Regular character
+    if (_cursorPos < _maxLen) {
+        _text[_cursorPos] = ch;
+        _cursorPos++;
+        _text[_cursorPos] = '\0';
+        _dirty = true;
+        if (_onChange) _onChange(_text);
+    }
+}
+
+void UITextInput::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Background
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Border (highlight when focused)
+    uint32_t bc = _focused ? rgb888(_focusBorderColor) : rgb888(_borderColor);
+    gfx.drawRect(_x, _y, _w, _h, bc);
+    if (_focused) {
+        gfx.drawRect(_x + 1, _y + 1, _w - 2, _h - 2, bc);  // 2px border
+    }
+
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_left);
+
+    if (_text[0] != '\0') {
+        gfx.setTextColor(rgb888(_textColor));
+        gfx.drawString(_text, _x + TAB5_PADDING, _y + _h / 2);
+
+        // Draw cursor blinking (simple: always show when focused)
+        if (_focused) {
+            int16_t tw = gfx.textWidth(_text);
+            int16_t cx = _x + TAB5_PADDING + tw + 2;
+            int16_t cy1 = _y + 6;
+            int16_t cy2 = _y + _h - 6;
+            gfx.drawFastVLine(cx, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+        }
+    } else {
+        // Placeholder
+        gfx.setTextColor(rgb888(_phColor));
+        gfx.drawString(_placeholder, _x + TAB5_PADDING, _y + _h / 2);
+
+        if (_focused) {
+            int16_t cx = _x + TAB5_PADDING;
+            int16_t cy1 = _y + 6;
+            int16_t cy2 = _y + _h - 6;
+            gfx.drawFastVLine(cx, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+        }
+    }
+
+    _dirty = false;
+}
+
+void UITextInput::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UITextInput::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        focus();  // Open keyboard on tap
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIInfoPopup
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIInfoPopup::UIInfoPopup(const char* title, const char* message)
+    : UIElement(0, 0, 10, 10)
+    , _btnX(0), _btnY(0), _btnW(100), _btnH(40)
+    , _needsAutoSize(true)
+{
+    _visible = false;
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    strncpy(_message, message, sizeof(_message) - 1);
+    _message[sizeof(_message) - 1] = '\0';
+    strncpy(_btnLabel, "OK", sizeof(_btnLabel) - 1);
+    _btnLabel[sizeof(_btnLabel) - 1] = '\0';
+}
+
+void UIInfoPopup::setTitle(const char* title) {
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIInfoPopup::setMessage(const char* msg) {
+    strncpy(_message, msg, sizeof(_message) - 1);
+    _message[sizeof(_message) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIInfoPopup::setButtonLabel(const char* label) {
+    strncpy(_btnLabel, label, sizeof(_btnLabel) - 1);
+    _btnLabel[sizeof(_btnLabel) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIInfoPopup::show() {
+    // Actual sizing happens in draw() where we have gfx reference
+    _visible = true;
+    _btnPressed = false;
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIInfoPopup::hide() {
+    _visible = false;
+    _btnPressed = false;
+    _dirty = true;
+}
+
+bool UIInfoPopup::hitTestBtn(int16_t tx, int16_t ty) const {
+    return tx >= _btnX && tx < _btnX + _btnW &&
+           ty >= _btnY && ty < _btnY + _btnH;
+}
+
+// ── Word-wrap helper ────────────────────────────────────────────────────────
+// Returns the number of lines produced.  lineStarts[] receives the byte
+// offset of each line inside `text`, lineLengths[] the byte length of that
+// line (excluding the trailing space that caused the wrap).
+int UIInfoPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
+                          int16_t maxWidth, int16_t* lineStarts,
+                          int16_t* lineLengths, int maxLines)
+{
+    gfx.setTextSize(textSize);
+    int lines = 0;
+    int len   = strlen(text);
+    int pos   = 0;
+
+    while (pos < len && lines < maxLines) {
+        // Find how many chars fit on this line
+        int bestBreak = -1;
+        int i = pos;
+        char buf[257];
+
+        while (i < len) {
+            int runLen = i - pos + 1;
+            if (runLen > 255) runLen = 255;
+            memcpy(buf, text + pos, runLen);
+            buf[runLen] = '\0';
+            int16_t tw = gfx.textWidth(buf);
+            if (tw > maxWidth && bestBreak > pos) {
+                // Exceeded width — break at last space
+                break;
+            }
+            if (text[i] == ' ' || text[i] == '-') {
+                bestBreak = i;
+            }
+            if (text[i] == '\n') {
+                // Explicit newline
+                bestBreak = i;
+                break;
+            }
+            i++;
+        }
+
+        int lineEnd;
+        int nextPos;
+        if (i >= len) {
+            // Rest of string fits
+            lineEnd = len;
+            nextPos = len;
+        } else if (text[i] == '\n' || (bestBreak >= pos && text[bestBreak] == '\n')) {
+            int brk = (text[i] == '\n') ? i : bestBreak;
+            lineEnd = brk;
+            nextPos = brk + 1; // skip the newline
+        } else if (bestBreak > pos) {
+            lineEnd = bestBreak + 1; // include the space/hyphen
+            nextPos = bestBreak + 1;
+        } else {
+            // Single long word — force break at width
+            lineEnd = (i > pos) ? i : pos + 1;
+            nextPos = lineEnd;
+        }
+
+        lineStarts[lines]  = pos;
+        lineLengths[lines] = lineEnd - pos;
+        lines++;
+        pos = nextPos;
+    }
+
+    if (lines == 0) {
+        lineStarts[0]  = 0;
+        lineLengths[0] = 0;
+        lines = 1;
+    }
+    return lines;
+}
+
+// ── Auto-size popup based on text content ───────────────────────────────────
+void UIInfoPopup::autoSize(M5GFX& gfx) {
+    const int16_t hPad        = TAB5_PADDING * 2;    // left + right padding
+    const int16_t vPad        = TAB5_PADDING;         // top/bottom padding
+    const int16_t titleGap    = 42;                    // title text + divider
+    const int16_t btnAreaH    = 56;                    // button + spacing
+    const int16_t minW        = 200;
+    const int16_t minH        = 140;
+    const int16_t screenMargin = 40;                   // min gap from screen edge
+    const int16_t maxW        = TAB5_SCREEN_W - screenMargin * 2;
+    const int16_t maxH        = TAB5_SCREEN_H - screenMargin * 2;
+
+    // Measure title width
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    int16_t titleW = gfx.textWidth(_title);
+    int16_t titleH_px = gfx.fontHeight() * TAB5_FONT_SIZE_LG;
+
+    // Measure button label width
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t btnLabelW = gfx.textWidth(_btnLabel);
+    int16_t btnW = btnLabelW + 60;
+    if (btnW < 100) btnW = 100;
+
+    // Start with width based on title (plus padding)
+    int16_t neededW = titleW + hPad + 40;        // extra for visual breathing room
+    if (btnW + hPad > neededW) neededW = btnW + hPad;
+
+    // Clamp width before doing word-wrap (so we wrap to final width)
+    if (neededW < minW)  neededW = minW;
+
+    // Check message width — may widen the popup
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t rawMsgW = gfx.textWidth(_message);
+    int16_t msgOneLineW = rawMsgW + hPad + 20;
+    if (msgOneLineW > neededW && msgOneLineW <= maxW) {
+        neededW = msgOneLineW;
+    }
+    if (neededW > maxW) neededW = maxW;
+
+    // Word-wrap the message at the chosen width
+    int16_t contentW = neededW - hPad - 10; // available text area
+    int16_t lineStarts[32], lineLengths[32];
+    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+                            contentW, lineStarts, lineLengths, 32);
+
+    // Compute line height
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+
+    // Total height
+    int16_t neededH = vPad          // top padding
+                    + titleGap      // title + divider
+                    + 10            // gap after divider
+                    + lineH * numLines  // message lines
+                    + 10            // gap before button
+                    + btnAreaH      // button area
+                    + vPad;         // bottom padding
+
+    if (neededH < minH) neededH = minH;
+    if (neededH > maxH) neededH = maxH;
+
+    // Apply dimensions and center on screen
+    _w = neededW;
+    _h = neededH;
+    _x = (TAB5_SCREEN_W - _w) / 2;
+    _y = (TAB5_SCREEN_H - _h) / 2;
+
+    _needsAutoSize = false;
+}
+
+void UIInfoPopup::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Auto-size on first draw or after content change
+    if (_needsAutoSize) {
+        autoSize(gfx);
+    }
+
+    // Shadow
+    gfx.fillRect(_x + 4, _y + 4, _w, _h, rgb888(0x0A0A14));
+
+    // Background
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 8, rgb888(_bgColor));
+
+    // Border
+    gfx.drawRoundRect(_x, _y, _w, _h, 8, rgb888(_borderColor));
+
+    // Title
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    gfx.setTextDatum(textdatum_t::top_center);
+    gfx.setTextColor(rgb888(_titleColor));
+    gfx.drawString(_title, _x + _w / 2, _y + TAB5_PADDING + 4);
+
+    // Divider below title
+    int16_t divY = _y + TAB5_PADDING + 38;
+    gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+                      _w - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
+
+    // Message — word-wrapped
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::top_center);
+    gfx.setTextColor(rgb888(_textColor));
+
+    int16_t contentW = _w - TAB5_PADDING * 2 - 10;
+    int16_t lineStarts[32], lineLengths[32];
+    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+                            contentW, lineStarts, lineLengths, 32);
+
+    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+    int16_t msgStartY = divY + 14;
+
+    char lineBuf[257];
+    for (int i = 0; i < numLines; i++) {
+        int len = lineLengths[i];
+        if (len > 255) len = 255;
+        memcpy(lineBuf, _message + lineStarts[i], len);
+        // Trim trailing spaces
+        while (len > 0 && lineBuf[len - 1] == ' ') len--;
+        lineBuf[len] = '\0';
+        gfx.drawString(lineBuf, _x + _w / 2, msgStartY + i * lineH);
+    }
+
+    // OK button (centered at bottom)
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    _btnW = gfx.textWidth(_btnLabel) + 60;
+    if (_btnW < 100) _btnW = 100;
+    _btnH = 40;
+    _btnX = _x + (_w - _btnW) / 2;
+    _btnY = _y + _h - _btnH - TAB5_PADDING;
+
+    uint32_t btnBg = _btnPressed ? rgb888(darken(_btnColor)) : rgb888(_btnColor);
+    gfx.fillSmoothRoundRect(_btnX, _btnY, _btnW, _btnH, 6, btnBg);
+
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_center);
+    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    gfx.drawString(_btnLabel, _btnX + _btnW / 2, _btnY + _btnH / 2);
+
+    _dirty = false;
+}
+
+void UIInfoPopup::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (hitTestBtn(tx, ty)) {
+        _btnPressed = true;
+        _dirty = true;
+    }
+}
+
+void UIInfoPopup::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_btnPressed && hitTestBtn(tx, ty)) {
+        // OK button tapped
+        _btnPressed = false;
+        hide();
+        if (_onDismiss) _onDismiss(TouchEvent::TOUCH_RELEASE);
+    } else if (!hitTest(tx, ty)) {
+        // Tap outside popup — dismiss
+        _btnPressed = false;
+        hide();
+        if (_onDismiss) _onDismiss(TouchEvent::TOUCH_RELEASE);
+    } else {
+        _btnPressed = false;
+        _dirty = true;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIManager
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIManager::UIManager(M5GFX& gfx)
+    : _gfx(gfx) {}
+
+void UIManager::addElement(UIElement* element) {
+    _elements.push_back(element);
+}
+
+void UIManager::removeElement(UIElement* element) {
+    _elements.erase(
+        std::remove(_elements.begin(), _elements.end(), element),
+        _elements.end()
+    );
+}
+
+void UIManager::clearElements() {
+    _elements.clear();
+}
+
+void UIManager::setBackground(uint32_t color) {
+    _bgColor = color;
+}
+
+void UIManager::clearScreen() {
+    _gfx.fillScreen(rgb888(_bgColor));
+}
+
+void UIManager::drawAll() {
+    _gfx.startWrite();
+    for (auto* elem : _elements) {
+        if (elem->isVisible()) {
+            elem->draw(_gfx);
+            elem->setDirty(false);
+        }
+    }
+    _gfx.endWrite();
+}
+
+void UIManager::drawDirty() {
+    _gfx.startWrite();
+    for (auto* elem : _elements) {
+        if (elem->isVisible() && elem->isDirty()) {
+            elem->draw(_gfx);
+            elem->setDirty(false);
+        }
+    }
+    _gfx.endWrite();
+}
+
+UIElement* UIManager::findByTag(const char* tag) {
+    for (auto* elem : _elements) {
+        if (strcmp(elem->getTag(), tag) == 0) return elem;
+    }
+    return nullptr;
+}
+
+void UIManager::update() {
+    unsigned long now = millis();
+    if (now - _lastTouchTime < TOUCH_DEBOUNCE_MS) return;
+
+    // Check if any modal overlay is open (keyboard, menu, or popup) — it gets exclusive touch priority
+    UIElement* modalElem = nullptr;
+    for (auto* elem : _elements) {
+        if ((elem->isKeyboard() || elem->isMenu() || elem->isPopup()) && elem->isVisible()) {
+            modalElem = elem;
+            // Keyboard takes priority over others if somehow both open
+            if (elem->isKeyboard()) break;
+        }
+    }
+
+    lgfx::touch_point_t tp;
+    uint_fast8_t count = _gfx.getTouch(&tp, 1);
+
+    if (count > 0) {
+        int16_t tx = (int16_t)tp.x;
+        int16_t ty = (int16_t)tp.y;
+
+        if (!_wasTouched) {
+            _touchedElem = nullptr;
+
+            // If a modal overlay is open, it captures all touch
+            if (modalElem) {
+                _touchedElem = modalElem;
+                modalElem->handleTouchDown(tx, ty);
+            } else {
+                // Normal hit-testing (reverse for z-order)
+                for (int i = (int)_elements.size() - 1; i >= 0; --i) {
+                    UIElement* elem = _elements[i];
+                    if (!elem->isVisible() || !elem->isEnabled()) continue;
+
+                    bool hit = elem->isCircleIcon()
+                             ? static_cast<UIIconCircle*>(elem)->hitTestCircle(tx, ty)
+                             : elem->hitTest(tx, ty);
+
+                    if (hit) {
+                        _touchedElem = elem;
+                        elem->handleTouchDown(tx, ty);
+                        break;
+                    }
+                }
+            }
+            _wasTouched = true;
+        }
+
+        _lastTouchX = tx;
+        _lastTouchY = ty;
+        _lastTouchTime = now;
+    } else {
+        // Touch released
+        if (_wasTouched && _touchedElem) {
+            bool wasModal = (_touchedElem->isMenu() || _touchedElem->isKeyboard() || _touchedElem->isPopup())
+                          && _touchedElem->isVisible();
+            _touchedElem->handleTouchUp(_lastTouchX, _lastTouchY);
+
+            // If a modal overlay just closed, redraw everything beneath it
+            if (wasModal && !_touchedElem->isVisible()) {
+                for (auto* e : _elements) {
+                    e->setDirty(true);
+                }
+                clearScreen();
+            }
+            _touchedElem = nullptr;
+        }
+        _wasTouched = false;
+        _lastTouchTime = now;
+    }
+
+    // Redraw dirty elements
+    drawDirty();
+}
