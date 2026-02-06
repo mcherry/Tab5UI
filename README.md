@@ -322,12 +322,28 @@ Hide (↓) closes the keyboard without firing `onSubmit`.
 
 ```cpp
 UIList(x, y, w, h, bgColor, textColor, selectColor);
+
+// Item management
 int  addItem(const char* text);       // Returns item index
+int  addItem(const char* text,        // Add item with right-aligned icon
+             const char* iconChar,
+             uint32_t iconColor = Tab5Theme::PRIMARY,
+             bool circle = false,     // false = square, true = circle
+             uint32_t iconBorderColor = Tab5Theme::BORDER,
+             uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
 void removeItem(int index);
 void clearItems();
 void setItemText(int index, const char* text);
 void setItemEnabled(int index, bool enabled);
 int  itemCount() const;
+
+// Item icons (add/change/remove after creation)
+void setItemIcon(int index, const char* iconChar,
+                 uint32_t iconColor = Tab5Theme::PRIMARY,
+                 bool circle = false,
+                 uint32_t iconBorderColor = Tab5Theme::BORDER,
+                 uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
+void clearItemIcon(int index);
 
 // Selection
 int  getSelectedIndex() const;        // -1 if none
@@ -347,8 +363,19 @@ void setBgColor(uint32_t c);
 void setTextColor(uint32_t c);
 void setSelectColor(uint32_t c);      // Highlight color for selected item
 void setBorderColor(uint32_t c);
-void setItemHeight(int16_t h);        // Default: 48px
+void setTextSize(float s);            // Font size; items auto-scale height
+void setItemHeight(int16_t h);        // Fixed height (disables auto-scale)
 ```
+
+**Icons:** Each list item can optionally display a right-aligned icon (square
+or circle) matching the library's `UIIconSquare` / `UIIconCircle` style.  Use
+the two-argument `addItem()` to create items with icons, or call
+`setItemIcon()` / `clearItemIcon()` to change icons after creation.  Icon size
+scales automatically with the item row height.
+
+**Text size:** Call `setTextSize()` to change the font.  Item row heights
+automatically scale to fit the text plus padding.  Calling `setItemHeight()`
+switches to a fixed row height and disables auto-scaling.
 
 **Behavior:** Drag up/down to scroll through the list. Tap an item to
 select it (highlighted in the selection color). The widget distinguishes

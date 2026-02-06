@@ -1441,11 +1441,50 @@ UIList::UIList(int16_t x, int16_t y, int16_t w, int16_t h,
 
 int UIList::addItem(const char* text) {
     if (_itemCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    _items[_itemCount] = UIListItem();  // reset to defaults
     strncpy(_items[_itemCount].text, text, sizeof(_items[0].text) - 1);
     _items[_itemCount].text[sizeof(_items[0].text) - 1] = '\0';
-    _items[_itemCount].enabled = true;
     _dirty = true;
     return _itemCount++;
+}
+
+int UIList::addItem(const char* text, const char* iconChar,
+                    uint32_t iconColor, bool circle,
+                    uint32_t iconBorderColor, uint32_t iconCharColor) {
+    if (_itemCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    _items[_itemCount] = UIListItem();
+    strncpy(_items[_itemCount].text, text, sizeof(_items[0].text) - 1);
+    _items[_itemCount].text[sizeof(_items[0].text) - 1] = '\0';
+    _items[_itemCount].hasIcon = true;
+    _items[_itemCount].iconCircle = circle;
+    strncpy(_items[_itemCount].iconChar, iconChar, sizeof(_items[0].iconChar) - 1);
+    _items[_itemCount].iconChar[sizeof(_items[0].iconChar) - 1] = '\0';
+    _items[_itemCount].iconColor = iconColor;
+    _items[_itemCount].iconBorderColor = iconBorderColor;
+    _items[_itemCount].iconCharColor = iconCharColor;
+    _dirty = true;
+    return _itemCount++;
+}
+
+void UIList::setItemIcon(int index, const char* iconChar,
+                         uint32_t iconColor, bool circle,
+                         uint32_t iconBorderColor, uint32_t iconCharColor) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].hasIcon = true;
+    _items[index].iconCircle = circle;
+    strncpy(_items[index].iconChar, iconChar, sizeof(_items[0].iconChar) - 1);
+    _items[index].iconChar[sizeof(_items[0].iconChar) - 1] = '\0';
+    _items[index].iconColor = iconColor;
+    _items[index].iconBorderColor = iconBorderColor;
+    _items[index].iconCharColor = iconCharColor;
+    _dirty = true;
+}
+
+void UIList::clearItemIcon(int index) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].hasIcon = false;
+    _items[index].iconChar[0] = '\0';
+    _dirty = true;
 }
 
 void UIList::removeItem(int index) {
@@ -1542,6 +1581,18 @@ int UIList::itemAtY(int16_t ty) const {
 void UIList::draw(M5GFX& gfx) {
     if (!_visible) return;
 
+    // Auto-scale item height from text size if enabled
+    if (_autoScale) {
+        gfx.setTextSize(_textSize);
+        int16_t fh = (int16_t)(gfx.fontHeight() * _textSize);
+        _itemH = fh + TAB5_PADDING * 2;  // text height + top/bottom padding
+        if (_itemH < 32) _itemH = 32;    // minimum
+    }
+
+    // Icon size derived from item height (fits inside with padding)
+    int16_t iconSize = _itemH - TAB5_PADDING;
+    if (iconSize < 16) iconSize = 16;
+
     // Background fill
     gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
 
@@ -1552,7 +1603,6 @@ void UIList::draw(M5GFX& gfx) {
     gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
 
     // Draw visible items
-    int16_t textAreaW = _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2;
     for (int i = 0; i < _itemCount; i++) {
         int16_t itemY = _y + (i * _itemH) - _scrollOffset;
 
@@ -1566,7 +1616,7 @@ void UIList::draw(M5GFX& gfx) {
         }
 
         // Item text
-        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextSize(_textSize);
         gfx.setTextDatum(textdatum_t::middle_left);
 
         uint32_t tc;
@@ -1579,6 +1629,44 @@ void UIList::draw(M5GFX& gfx) {
         }
         gfx.setTextColor(tc);
         gfx.drawString(_items[i].text, _x + TAB5_PADDING, itemY + _itemH / 2);
+
+        // Right-aligned icon (if present)
+        if (_items[i].hasIcon) {
+            int16_t iconX = _x + _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING - iconSize - 2;
+            int16_t iconY = itemY + (_itemH - iconSize) / 2;
+
+            if (_items[i].iconCircle) {
+                // Circle icon
+                int16_t cr = iconSize / 2;
+                int16_t cx = iconX + cr;
+                int16_t cy = iconY + cr;
+                gfx.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
+                gfx.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
+
+                // Icon character
+                if (_items[i].iconChar[0] != '\0') {
+                    gfx.setTextSize(_textSize * 0.8f);
+                    gfx.setTextDatum(textdatum_t::middle_center);
+                    gfx.setTextColor(rgb888(_items[i].iconCharColor));
+                    gfx.drawString(_items[i].iconChar, cx, cy);
+                }
+            } else {
+                // Square icon (rounded)
+                gfx.fillSmoothRoundRect(iconX, iconY, iconSize, iconSize, 4,
+                                         rgb888(_items[i].iconColor));
+                gfx.drawRoundRect(iconX, iconY, iconSize, iconSize, 4,
+                                   rgb888(_items[i].iconBorderColor));
+
+                // Icon character
+                if (_items[i].iconChar[0] != '\0') {
+                    gfx.setTextSize(_textSize * 0.8f);
+                    gfx.setTextDatum(textdatum_t::middle_center);
+                    gfx.setTextColor(rgb888(_items[i].iconCharColor));
+                    gfx.drawString(_items[i].iconChar,
+                                   iconX + iconSize / 2, iconY + iconSize / 2);
+                }
+            }
+        }
 
         // Divider between items
         if (i < _itemCount - 1) {

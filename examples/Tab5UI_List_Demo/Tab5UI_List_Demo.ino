@@ -45,18 +45,47 @@ void setup() {
     display.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
-    // ── Populate the list with sample items ──
-    const char* fruits[] = {
-        "Apple", "Banana", "Cherry", "Date", "Elderberry",
-        "Fig", "Grape", "Honeydew", "Indian Fig", "Jackfruit",
-        "Kiwi", "Lemon", "Mango", "Nectarine", "Orange",
-        "Papaya", "Quince", "Raspberry", "Strawberry", "Tangerine",
-        "Ugli Fruit", "Vanilla Bean", "Watermelon", "Ximenia", "Yuzu",
-        "Zucchini"
-    };
-    for (int i = 0; i < 26; i++) {
-        myList.addItem(fruits[i]);
-    }
+    // ── Populate the list with sample items (some with icons) ──
+    // Items with square icons
+    myList.addItem("Apple",       "A", Tab5Theme::DANGER);
+    myList.addItem("Banana",      "B", Tab5Theme::ACCENT);
+    myList.addItem("Cherry",      "C", Tab5Theme::DANGER);
+    myList.addItem("Date",        "D", Tab5Theme::ACCENT);
+    myList.addItem("Elderberry",  "E", Tab5Theme::SECONDARY);
+
+    // Items with circle icons
+    myList.addItem("Fig",         "F", Tab5Theme::SECONDARY, true);
+    myList.addItem("Grape",       "G", Tab5Theme::PRIMARY,   true);
+    myList.addItem("Honeydew",    "H", Tab5Theme::SECONDARY, true);
+
+    // Items without icons
+    myList.addItem("Indian Fig");
+    myList.addItem("Jackfruit");
+    myList.addItem("Kiwi");
+    myList.addItem("Lemon");
+    myList.addItem("Mango");
+    myList.addItem("Nectarine");
+    myList.addItem("Orange");
+
+    // Add icons to existing items after the fact
+    myList.setItemIcon(12, "M", Tab5Theme::ACCENT);           // Mango — square
+    myList.setItemIcon(14, "O", Tab5Theme::PRIMARY, true);    // Orange — circle
+
+    // More items (no icons)
+    myList.addItem("Papaya");
+    myList.addItem("Quince");
+    myList.addItem("Raspberry");
+    myList.addItem("Strawberry");
+    myList.addItem("Tangerine");
+    myList.addItem("Ugli Fruit");
+    myList.addItem("Vanilla Bean");
+    myList.addItem("Watermelon");
+    myList.addItem("Ximenia");
+    myList.addItem("Yuzu");
+    myList.addItem("Zucchini");
+
+    // Set the list text size (items auto-scale height to fit)
+    myList.setTextSize(TAB5_FONT_SIZE_MD);
 
     // ── List selection callback ──
     myList.setOnSelect([](int index, const char* text) {

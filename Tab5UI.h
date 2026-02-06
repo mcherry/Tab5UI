@@ -725,7 +725,22 @@ struct UIListItem {
     char     text[64];
     bool     enabled;
 
-    UIListItem() : enabled(true) { text[0] = '\0'; }
+    // Optional right-aligned icon
+    bool     hasIcon;
+    bool     iconCircle;      // true = circle, false = square
+    char     iconChar[8];     // Character drawn on the icon
+    uint32_t iconColor;       // Icon fill color
+    uint32_t iconBorderColor; // Icon border color
+    uint32_t iconCharColor;   // Icon character color
+
+    UIListItem()
+        : enabled(true), hasIcon(false), iconCircle(false)
+        , iconColor(0x2196F3), iconBorderColor(0x37474F)
+        , iconCharColor(0xFFFFFF)
+    {
+        text[0] = '\0';
+        iconChar[0] = '\0';
+    }
 };
 
 class UIList : public UIElement {
@@ -742,11 +757,24 @@ public:
 
     // ── Item management ──
     int  addItem(const char* text);
+    int  addItem(const char* text, const char* iconChar,
+                 uint32_t iconColor = Tab5Theme::PRIMARY,
+                 bool circle = false,
+                 uint32_t iconBorderColor = Tab5Theme::BORDER,
+                 uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
     void removeItem(int index);
     void clearItems();
     void setItemText(int index, const char* text);
     void setItemEnabled(int index, bool enabled);
     int  itemCount() const { return _itemCount; }
+
+    // ── Item icons ──
+    void setItemIcon(int index, const char* iconChar,
+                     uint32_t iconColor = Tab5Theme::PRIMARY,
+                     bool circle = false,
+                     uint32_t iconBorderColor = Tab5Theme::BORDER,
+                     uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
+    void clearItemIcon(int index);
 
     // ── Selection ──
     int  getSelectedIndex() const { return _selectedIndex; }
@@ -766,7 +794,8 @@ public:
     void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
     void setSelectColor(uint32_t c)    { _selectColor = c; _dirty = true; }
     void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
-    void setItemHeight(int16_t h)      { _itemH = h; _dirty = true; }
+    void setItemHeight(int16_t h)      { _itemH = h; _autoScale = false; _dirty = true; }
+    void setTextSize(float s)          { _textSize = s; _autoScale = true; _dirty = true; }
 
 private:
     UIListItem _items[TAB5_LIST_MAX_ITEMS];
@@ -774,6 +803,8 @@ private:
     int        _selectedIndex = -1;
     int16_t    _scrollOffset  = 0;   // Pixels scrolled from top
     int16_t    _itemH         = TAB5_LIST_ITEM_H;
+    float      _textSize      = TAB5_FONT_SIZE_MD;
+    bool       _autoScale     = true;   // Auto-scale _itemH from _textSize
 
     uint32_t   _bgColor;
     uint32_t   _textColor;
