@@ -79,6 +79,12 @@ UITextRow rowDisplay(700, CY + 120, 540, "Display", "1280x720");
 UITextRow rowTouch(700, CY + 160, 540, "Touch", "Capacitive");
 UITextRow rowWidgets(700, CY + 200, 540, "Widgets", "14 types");
 
+// Text input + keyboard (right column, below text rows)
+UITextInput textInput(700, CY + 250, 540, "Type something...");
+UILabel     inputResult(700, CY + 310, 540, TAB5_LABEL_H,
+                        "Submitted: (none)", Tab5Theme::ACCENT, TAB5_FONT_SIZE_SM);
+UIKeyboard  keyboard;
+
 UIInfoPopup popup("Info", "Button pressed!");
 
 // Counter for button presses
@@ -127,6 +133,8 @@ void repositionElements() {
     rowDisplay.setPosition(700, cy + 120);
     rowTouch.setPosition(700, cy + 160);
     rowWidgets.setPosition(700, cy + 200);
+    textInput.setPosition(700, cy + 250);
+    inputResult.setPosition(700, cy + 310);
 
     // Tab 2 elements
     int16_t listH = tabs.contentH() - TAB5_PADDING * 2;
@@ -158,6 +166,15 @@ void setup() {
     iconCr2.setIconChar("?");
 
     rowWidgets.setShowDivider(false);  // Last row, no divider needed
+
+    // Text input setup
+    textInput.attachKeyboard(&keyboard);
+    textInput.setOnSubmit([](const char* text) {
+        char buf[160];
+        snprintf(buf, sizeof(buf), "Submitted: %s", text);
+        inputResult.setText(buf);
+        statusBar.setText(buf);
+    });
 
     // Button callbacks
     btnAction.setOnTouchRelease([](TouchEvent e) {
@@ -228,6 +245,8 @@ void setup() {
     tabs.addChild(page0, &rowDisplay);
     tabs.addChild(page0, &rowTouch);
     tabs.addChild(page0, &rowWidgets);
+    tabs.addChild(page0, &textInput);
+    tabs.addChild(page0, &inputResult);
 
     // ── Page 1: Data List ───────────────────────────────────────────────────
 
@@ -313,9 +332,10 @@ void setup() {
     ui.addElement(&tabs);
     ui.addElement(&statusBar);
 
-    // Modal popups added last for z-order
+    // Modal elements added last for z-order
     ui.addElement(&popup);
     ui.addElement(&listPopup);
+    ui.addElement(&keyboard);
 
     ui.setContentArea(TAB5_TITLE_H, TAB5_SCREEN_H - TAB5_STATUS_H);
     ui.drawAll();
