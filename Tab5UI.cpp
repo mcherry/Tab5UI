@@ -1694,6 +1694,347 @@ void UIInfoPopup::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIConfirmPopup
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIConfirmPopup::UIConfirmPopup(const char* title, const char* message)
+    : UIElement(0, 0, 10, 10)
+    , _yesBtnX(0), _yesBtnY(0), _yesBtnW(100), _yesBtnH(40)
+    , _noBtnX(0), _noBtnY(0), _noBtnW(100), _noBtnH(40)
+    , _needsAutoSize(true)
+{
+    _visible = false;
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    strncpy(_message, message, sizeof(_message) - 1);
+    _message[sizeof(_message) - 1] = '\0';
+    strncpy(_yesLabel, "Yes", sizeof(_yesLabel) - 1);
+    _yesLabel[sizeof(_yesLabel) - 1] = '\0';
+    strncpy(_noLabel, "No", sizeof(_noLabel) - 1);
+    _noLabel[sizeof(_noLabel) - 1] = '\0';
+}
+
+void UIConfirmPopup::setTitle(const char* title) {
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIConfirmPopup::setMessage(const char* msg) {
+    strncpy(_message, msg, sizeof(_message) - 1);
+    _message[sizeof(_message) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIConfirmPopup::setYesLabel(const char* label) {
+    strncpy(_yesLabel, label, sizeof(_yesLabel) - 1);
+    _yesLabel[sizeof(_yesLabel) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIConfirmPopup::setNoLabel(const char* label) {
+    strncpy(_noLabel, label, sizeof(_noLabel) - 1);
+    _noLabel[sizeof(_noLabel) - 1] = '\0';
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIConfirmPopup::show() {
+    _visible = true;
+    _yesBtnPressed = false;
+    _noBtnPressed = false;
+    _result = ConfirmResult::NO;
+    _needsAutoSize = true;
+    _dirty = true;
+}
+
+void UIConfirmPopup::hide() {
+    _visible = false;
+    _yesBtnPressed = false;
+    _noBtnPressed = false;
+    _dirty = true;
+}
+
+bool UIConfirmPopup::hitTestYesBtn(int16_t tx, int16_t ty) const {
+    return tx >= _yesBtnX && tx < _yesBtnX + _yesBtnW &&
+           ty >= _yesBtnY && ty < _yesBtnY + _yesBtnH;
+}
+
+bool UIConfirmPopup::hitTestNoBtn(int16_t tx, int16_t ty) const {
+    return tx >= _noBtnX && tx < _noBtnX + _noBtnW &&
+           ty >= _noBtnY && ty < _noBtnY + _noBtnH;
+}
+
+// ── Word-wrap helper (identical to UIInfoPopup's) ───────────────────────────
+int UIConfirmPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
+                             int16_t maxWidth, int16_t* lineStarts,
+                             int16_t* lineLengths, int maxLines)
+{
+    gfx.setTextSize(textSize);
+    int lines = 0;
+    int len   = strlen(text);
+    int pos   = 0;
+
+    while (pos < len && lines < maxLines) {
+        int bestBreak = -1;
+        int i = pos;
+        char buf[257];
+
+        while (i < len) {
+            int runLen = i - pos + 1;
+            if (runLen > 255) runLen = 255;
+            memcpy(buf, text + pos, runLen);
+            buf[runLen] = '\0';
+            int16_t tw = gfx.textWidth(buf);
+            if (tw > maxWidth && bestBreak > pos) {
+                break;
+            }
+            if (text[i] == ' ' || text[i] == '-') {
+                bestBreak = i;
+            }
+            if (text[i] == '\n') {
+                bestBreak = i;
+                break;
+            }
+            i++;
+        }
+
+        int lineEnd;
+        int nextPos;
+        if (i >= len) {
+            lineEnd = len;
+            nextPos = len;
+        } else if (text[i] == '\n' || (bestBreak >= pos && text[bestBreak] == '\n')) {
+            int brk = (text[i] == '\n') ? i : bestBreak;
+            lineEnd = brk;
+            nextPos = brk + 1;
+        } else if (bestBreak > pos) {
+            lineEnd = bestBreak + 1;
+            nextPos = bestBreak + 1;
+        } else {
+            lineEnd = (i > pos) ? i : pos + 1;
+            nextPos = lineEnd;
+        }
+
+        lineStarts[lines]  = pos;
+        lineLengths[lines] = lineEnd - pos;
+        lines++;
+        pos = nextPos;
+    }
+
+    if (lines == 0) {
+        lineStarts[0]  = 0;
+        lineLengths[0] = 0;
+        lines = 1;
+    }
+    return lines;
+}
+
+// ── Auto-size popup based on text content ───────────────────────────────────
+void UIConfirmPopup::autoSize(M5GFX& gfx) {
+    const int16_t hPad         = TAB5_PADDING * 2;
+    const int16_t vPad         = TAB5_PADDING;
+    const int16_t titleGap     = 42;
+    const int16_t btnAreaH     = 56;
+    const int16_t btnGap       = 20;    // gap between Yes and No buttons
+    const int16_t minW         = 260;
+    const int16_t minH         = 140;
+    const int16_t screenMargin = 40;
+    const int16_t maxW         = TAB5_SCREEN_W - screenMargin * 2;
+    const int16_t maxH         = TAB5_SCREEN_H - screenMargin * 2;
+
+    // Measure title width
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    int16_t titleW = gfx.textWidth(_title);
+
+    // Measure button label widths
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t yesLabelW = gfx.textWidth(_yesLabel);
+    int16_t noLabelW  = gfx.textWidth(_noLabel);
+    int16_t yesW = yesLabelW + 60;
+    int16_t noW  = noLabelW + 60;
+    if (yesW < 100) yesW = 100;
+    if (noW < 100)  noW  = 100;
+    int16_t totalBtnW = yesW + btnGap + noW;
+
+    // Start with width based on title
+    int16_t neededW = titleW + hPad + 40;
+    if (totalBtnW + hPad > neededW) neededW = totalBtnW + hPad;
+
+    if (neededW < minW) neededW = minW;
+
+    // Check message width
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t rawMsgW = gfx.textWidth(_message);
+    int16_t msgOneLineW = rawMsgW + hPad + 20;
+    if (msgOneLineW > neededW && msgOneLineW <= maxW) {
+        neededW = msgOneLineW;
+    }
+    if (neededW > maxW) neededW = maxW;
+
+    // Word-wrap the message
+    int16_t contentW = neededW - hPad - 10;
+    int16_t lineStarts[32], lineLengths[32];
+    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+                            contentW, lineStarts, lineLengths, 32);
+
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+
+    // Total height
+    int16_t neededH = vPad + titleGap + 10
+                    + lineH * numLines + 10
+                    + btnAreaH + vPad;
+
+    if (neededH < minH) neededH = minH;
+    if (neededH > maxH) neededH = maxH;
+
+    _w = neededW;
+    _h = neededH;
+    _x = (TAB5_SCREEN_W - _w) / 2;
+    _y = (TAB5_SCREEN_H - _h) / 2;
+
+    _needsAutoSize = false;
+}
+
+void UIConfirmPopup::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    if (_needsAutoSize) {
+        autoSize(gfx);
+    }
+
+    // Shadow
+    gfx.fillRect(_x + 4, _y + 4, _w, _h, rgb888(0x0A0A14));
+
+    // Background
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 8, rgb888(_bgColor));
+
+    // Border
+    gfx.drawRoundRect(_x, _y, _w, _h, 8, rgb888(_borderColor));
+
+    // Title
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    gfx.setTextDatum(textdatum_t::top_center);
+    gfx.setTextColor(rgb888(_titleColor));
+    gfx.drawString(_title, _x + _w / 2, _y + TAB5_PADDING + 4);
+
+    // Divider below title
+    int16_t divY = _y + TAB5_PADDING + 38;
+    gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+                      _w - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
+
+    // Message — word-wrapped
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::top_center);
+    gfx.setTextColor(rgb888(_textColor));
+
+    int16_t contentW = _w - TAB5_PADDING * 2 - 10;
+    int16_t lineStarts[32], lineLengths[32];
+    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+                            contentW, lineStarts, lineLengths, 32);
+
+    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+    int16_t msgStartY = divY + 14;
+
+    char lineBuf[257];
+    for (int i = 0; i < numLines; i++) {
+        int len = lineLengths[i];
+        if (len > 255) len = 255;
+        memcpy(lineBuf, _message + lineStarts[i], len);
+        while (len > 0 && lineBuf[len - 1] == ' ') len--;
+        lineBuf[len] = '\0';
+        gfx.drawString(lineBuf, _x + _w / 2, msgStartY + i * lineH);
+    }
+
+    // ── Yes / No buttons (side by side, centered at bottom) ──
+    const int16_t btnGap = 20;
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+
+    _yesBtnW = gfx.textWidth(_yesLabel) + 60;
+    if (_yesBtnW < 100) _yesBtnW = 100;
+    _yesBtnH = 40;
+
+    _noBtnW = gfx.textWidth(_noLabel) + 60;
+    if (_noBtnW < 100) _noBtnW = 100;
+    _noBtnH = 40;
+
+    int16_t totalBtnW = _yesBtnW + btnGap + _noBtnW;
+    int16_t btnStartX = _x + (_w - totalBtnW) / 2;
+    int16_t btnY = _y + _h - _yesBtnH - TAB5_PADDING;
+
+    // No button (left)
+    _noBtnX = btnStartX;
+    _noBtnY = btnY;
+
+    uint32_t noBg = _noBtnPressed ? rgb888(darken(_noBtnColor)) : rgb888(_noBtnColor);
+    gfx.fillSmoothRoundRect(_noBtnX, _noBtnY, _noBtnW, _noBtnH, 6, noBg);
+
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_center);
+    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    gfx.drawString(_noLabel, _noBtnX + _noBtnW / 2, _noBtnY + _noBtnH / 2);
+
+    // Yes button (right)
+    _yesBtnX = btnStartX + _noBtnW + btnGap;
+    _yesBtnY = btnY;
+
+    uint32_t yesBg = _yesBtnPressed ? rgb888(darken(_yesBtnColor)) : rgb888(_yesBtnColor);
+    gfx.fillSmoothRoundRect(_yesBtnX, _yesBtnY, _yesBtnW, _yesBtnH, 6, yesBg);
+
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_center);
+    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    gfx.drawString(_yesLabel, _yesBtnX + _yesBtnW / 2, _yesBtnY + _yesBtnH / 2);
+
+    _dirty = false;
+}
+
+void UIConfirmPopup::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (hitTestYesBtn(tx, ty)) {
+        _yesBtnPressed = true;
+        _dirty = true;
+    } else if (hitTestNoBtn(tx, ty)) {
+        _noBtnPressed = true;
+        _dirty = true;
+    }
+}
+
+void UIConfirmPopup::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_yesBtnPressed && hitTestYesBtn(tx, ty)) {
+        // Yes button tapped
+        _yesBtnPressed = false;
+        _result = ConfirmResult::YES;
+        hide();
+        if (_onConfirm) _onConfirm(ConfirmResult::YES);
+    } else if (_noBtnPressed && hitTestNoBtn(tx, ty)) {
+        // No button tapped
+        _noBtnPressed = false;
+        _result = ConfirmResult::NO;
+        hide();
+        if (_onConfirm) _onConfirm(ConfirmResult::NO);
+    } else if (!hitTest(tx, ty)) {
+        // Tap outside popup — treat as No
+        _yesBtnPressed = false;
+        _noBtnPressed = false;
+        _result = ConfirmResult::NO;
+        hide();
+        if (_onConfirm) _onConfirm(ConfirmResult::NO);
+    } else {
+        _yesBtnPressed = false;
+        _noBtnPressed = false;
+        _dirty = true;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIList
 // ═════════════════════════════════════════════════════════════════════════════
 

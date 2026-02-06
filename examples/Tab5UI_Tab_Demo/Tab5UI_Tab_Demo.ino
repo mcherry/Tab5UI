@@ -87,6 +87,13 @@ UIKeyboard  keyboard;
 
 UIInfoPopup popup("Info", "Button pressed!");
 
+// Confirm popup (triggered from Confirm button)
+UIConfirmPopup confirmPopup("Confirm", "Are you sure you want\nto proceed?");
+UIButton    btnConfirm(TAB5_PADDING, CY + 330, 300, TAB5_BTN_H,
+                       "Confirm Action", Tab5Theme::ACCENT);
+UILabel     confirmResult(TAB5_PADDING + 320, CY + 330, 310, TAB5_LABEL_H,
+                          "Result: (waiting)", Tab5Theme::ACCENT, TAB5_FONT_SIZE_SM);
+
 // Counter for button presses
 int pressCount = 0;
 
@@ -135,6 +142,8 @@ void repositionElements() {
     rowWidgets.setPosition(700, cy + 200);
     textInput.setPosition(700, cy + 250);
     inputResult.setPosition(700, cy + 310);
+    btnConfirm.setPosition(TAB5_PADDING, cy + 330);
+    confirmResult.setPosition(TAB5_PADDING + 320, cy + 330);
 
     // Tab 2 elements
     int16_t listH = tabs.contentH() - TAB5_PADDING * 2;
@@ -209,6 +218,21 @@ void setup() {
         popup.show();
     });
 
+    // Confirm button
+    btnConfirm.setOnTouchRelease([](TouchEvent e) {
+        confirmPopup.show();
+    });
+
+    confirmPopup.setOnConfirm([](ConfirmResult result) {
+        if (result == ConfirmResult::YES) {
+            confirmResult.setText("Result: Yes");
+            statusBar.setText("Confirmed: Yes");
+        } else {
+            confirmResult.setText("Result: No");
+            statusBar.setText("Confirmed: No");
+        }
+    });
+
     // Tab position toggle button
     btnTabPos.setBorderColor(Tab5Theme::PRIMARY);
     btnTabPos.setOnTouchRelease([](TouchEvent e) {
@@ -247,6 +271,8 @@ void setup() {
     tabs.addChild(page0, &rowWidgets);
     tabs.addChild(page0, &textInput);
     tabs.addChild(page0, &inputResult);
+    tabs.addChild(page0, &btnConfirm);
+    tabs.addChild(page0, &confirmResult);
 
     // ── Page 1: Data List ───────────────────────────────────────────────────
 
@@ -335,6 +361,7 @@ void setup() {
     // Modal elements added last for z-order
     ui.addElement(&popup);
     ui.addElement(&listPopup);
+    ui.addElement(&confirmPopup);
     ui.addElement(&keyboard);
 
     ui.setContentArea(TAB5_TITLE_H, TAB5_SCREEN_H - TAB5_STATUS_H);

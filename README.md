@@ -19,6 +19,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIList** | Scrollable list with touch-drag scrolling, item selection, and scrollbar |
 | **UITabView** | Multi-page tabbed container with configurable top/bottom tab bar |
 | **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
+| **UIConfirmPopup** | Auto-sized modal confirm popup with title, message, and Yes/No buttons |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -464,6 +465,33 @@ exceeds the screen (40px margin on each side).  It is always centered.
 Tapping the OK button or outside the popup dismisses it.  The popup is
 modal — it captures all touch input while visible.
 
+### UIConfirmPopup
+
+```cpp
+UIConfirmPopup("Title", "Are you sure?");
+void show();                          // Display centered, auto-sized
+void hide();
+bool isOpen() const;
+void setTitle(const char* title);
+void setMessage(const char* msg);
+void setYesLabel(const char* label);  // Default: "Yes"
+void setNoLabel(const char* label);   // Default: "No"
+ConfirmResult getResult() const;      // ConfirmResult::YES or ConfirmResult::NO
+void setOnConfirm(ConfirmCallback cb); // void(ConfirmResult result)
+void setBgColor(uint32_t c);
+void setTitleColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setYesBtnColor(uint32_t c);      // Default: SECONDARY (green)
+void setNoBtnColor(uint32_t c);       // Default: DANGER (red)
+void setBorderColor(uint32_t c);
+```
+
+**Behavior:** Works identically to `UIInfoPopup` (auto-sized, centered, modal,
+word-wrapping) but presents two buttons: **No** (left, red) and **Yes** (right,
+green).  Use `setOnConfirm()` to receive a `ConfirmResult` enum indicating
+which button was pressed.  Tapping outside the popup is treated as **No**.
+The last result is also available via `getResult()`.
+
 ### UIManager
 
 ```cpp
@@ -499,7 +527,8 @@ Tab5UI/
 │   ├── screenshot4_popup.png
 │   ├── screenshot5_list.png
 │   ├── screenshot6_tab_controls.png
-│   └── screenshot7_tab_list.png
+│   ├── screenshot7_tab_list.png
+│   └── screenshot8_confirm_popup.png
 └── examples/
     ├── Tab5UI_Demo/
     │   └── Tab5UI_Demo.ino           # Full demo sketch
@@ -549,6 +578,9 @@ Tab5UI/
 
 ### Tab Demo — Data List
 ![Tab Data List](screenshots/screenshot7_tab_list.png)
+
+### Confirm Popup
+![Confirm popup](screenshots/screenshot8_confirm_popup.png)
 
 ## License
 

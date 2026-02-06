@@ -82,6 +82,13 @@ UILabel     inputResult(700, 430, 560, TAB5_LABEL_H, "Submitted: (none)");
 // Info popup (triggered from About menu item)
 UIInfoPopup aboutPopup("About", "Tab5 UI Demo");
 
+// Confirm popup
+UIConfirmPopup confirmPopup("Confirm", "Are you sure you want\nto proceed with this action?");
+UIButton    btnConfirm(TAB5_PADDING, 560, 280, TAB5_BTN_H,
+                       "Confirm Action", Tab5Theme::ACCENT);
+UILabel     confirmResult(300, 560, 370, TAB5_LABEL_H,
+                          "Result: (waiting)");
+
 // ── State ───────────────────────────────────────────────────────────────────
 int pressCount = 0;
 bool toggleState = false;
@@ -254,6 +261,25 @@ void setup() {
     iconLabel.setTextColor(Tab5Theme::TEXT_SECONDARY);
     iconLabel.setTextSize(TAB5_FONT_SIZE_SM);
 
+    // ── Configure Confirm Popup ──
+    confirmResult.setTextColor(Tab5Theme::ACCENT);
+    confirmResult.setTextSize(TAB5_FONT_SIZE_SM);
+    confirmResult.setAlign(textdatum_t::middle_left);
+
+    btnConfirm.setOnTouchRelease([](TouchEvent e) {
+        confirmPopup.show();
+    });
+
+    confirmPopup.setOnConfirm([](ConfirmResult result) {
+        if (result == ConfirmResult::YES) {
+            confirmResult.setText("Result: Yes");
+            statusBar.setText("Confirmed: Yes");
+        } else {
+            confirmResult.setText("Result: No");
+            statusBar.setText("Confirmed: No");
+        }
+    });
+
     row6.setShowDivider(false);
 
     // ── Status bar config ──
@@ -283,6 +309,8 @@ void setup() {
     ui.addElement(&iconCr3);
     ui.addElement(&iconCr4);
     ui.addElement(&iconLabel);
+    ui.addElement(&btnConfirm);
+    ui.addElement(&confirmResult);
     ui.addElement(&btnLarge);
     ui.addElement(&infoLabel);
     ui.addElement(&row4);
@@ -295,6 +323,7 @@ void setup() {
     ui.addElement(&mainMenu);         // Menu added near-last — draws on top
     ui.addElement(&keyboard);         // Keyboard added near-last
     ui.addElement(&aboutPopup);       // Popup drawn on top of everything
+    ui.addElement(&confirmPopup);     // Confirm popup also on top
 
     // Set content area between title and status bars
     ui.setContentArea(TAB5_TITLE_H, TAB5_SCREEN_H - TAB5_STATUS_H);

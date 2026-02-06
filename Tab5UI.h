@@ -5,7 +5,7 @@
  * 5-inch 1280x720 IPS capacitive touchscreen.
  *
  * Widgets: Label, Button, TitleBar, StatusBar, TextRow, IconSquare, IconCircle,
- *          Menu, TextInput, Keyboard, TabView
+ *          Menu, TextInput, Keyboard, TabView, ConfirmPopup
  * All widgets support touch and touch-release event callbacks.
  *
  * License: MIT
@@ -834,6 +834,100 @@ private:
     // Auto-size the popup based on text content
     void autoSize(M5GFX& gfx);
     // Word-wrap helper: returns number of lines, fills lineStarts/lineLengths
+    static int wordWrap(M5GFX& gfx, const char* text, float textSize,
+                        int16_t maxWidth, int16_t* lineStarts,
+                        int16_t* lineLengths, int maxLines);
+};
+
+/*******************************************************************************
+ * UIConfirmPopup — Modal popup with title, message, and Yes/No buttons
+ *
+ * Usage:
+ *   UIConfirmPopup confirm("Delete", "Are you sure you want to delete?");
+ *   confirm.setOnConfirm([](ConfirmResult result) {
+ *       if (result == ConfirmResult::YES) {
+ *           // user pressed Yes
+ *       } else {
+ *           // user pressed No (or tapped outside)
+ *       }
+ *   });
+ *   confirm.show();
+ *   ui.addElement(&confirm);     // add last so it draws on top
+ *
+ * Tapping outside the popup is treated as "No".
+ ******************************************************************************/
+enum class ConfirmResult {
+    YES,
+    NO
+};
+
+using ConfirmCallback = std::function<void(ConfirmResult result)>;
+
+class UIConfirmPopup : public UIElement {
+public:
+    UIConfirmPopup(const char* title = "Confirm",
+                   const char* message = "");
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // Type identification
+    bool isPopup() const override { return true; }
+
+    // Show / Hide
+    void show();
+    void hide();
+    bool isOpen() const { return _visible; }
+
+    // Content
+    void setTitle(const char* title);
+    void setMessage(const char* msg);
+    void setYesLabel(const char* label);
+    void setNoLabel(const char* label);
+
+    // Get the result of the last interaction
+    ConfirmResult getResult() const { return _result; }
+
+    // Callback when a choice is made (Yes, No, or tap outside)
+    void setOnConfirm(ConfirmCallback cb) { _onConfirm = cb; }
+
+    // Colors
+    void setBgColor(uint32_t c)      { _bgColor = c; _dirty = true; }
+    void setTitleColor(uint32_t c)   { _titleColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)    { _textColor = c; _dirty = true; }
+    void setYesBtnColor(uint32_t c)  { _yesBtnColor = c; _dirty = true; }
+    void setNoBtnColor(uint32_t c)   { _noBtnColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)  { _borderColor = c; _dirty = true; }
+
+private:
+    char     _title[64];
+    char     _message[256];
+    char     _yesLabel[32];
+    char     _noLabel[32];
+    bool     _yesBtnPressed = false;
+    bool     _noBtnPressed  = false;
+    bool     _needsAutoSize = true;
+    ConfirmResult _result   = ConfirmResult::NO;
+
+    uint32_t _bgColor      = Tab5Theme::SURFACE;
+    uint32_t _titleColor   = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _textColor    = Tab5Theme::TEXT_SECONDARY;
+    uint32_t _yesBtnColor  = Tab5Theme::SECONDARY;
+    uint32_t _noBtnColor   = Tab5Theme::DANGER;
+    uint32_t _borderColor  = Tab5Theme::BORDER;
+
+    ConfirmCallback _onConfirm = nullptr;
+
+    // Button rects (calculated in draw)
+    int16_t _yesBtnX, _yesBtnY, _yesBtnW, _yesBtnH;
+    int16_t _noBtnX, _noBtnY, _noBtnW, _noBtnH;
+    bool hitTestYesBtn(int16_t tx, int16_t ty) const;
+    bool hitTestNoBtn(int16_t tx, int16_t ty) const;
+
+    // Auto-size the popup based on text content
+    void autoSize(M5GFX& gfx);
+    // Re-use UIInfoPopup's word-wrap (same signature)
     static int wordWrap(M5GFX& gfx, const char* text, float textSize,
                         int16_t maxWidth, int16_t* lineStarts,
                         int16_t* lineLengths, int maxLines);
