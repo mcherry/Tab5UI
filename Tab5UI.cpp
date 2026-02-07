@@ -2035,6 +2035,235 @@ void UIConfirmPopup::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIScrollText
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIScrollText::UIScrollText(int16_t x, int16_t y, int16_t w, int16_t h,
+                           uint32_t bgColor, uint32_t textColor)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor), _textColor(textColor)
+{
+    _text[0] = '\0';
+}
+
+void UIScrollText::setText(const char* text) {
+    strncpy(_text, text, TAB5_SCROLLTEXT_MAX_LEN - 1);
+    _text[TAB5_SCROLLTEXT_MAX_LEN - 1] = '\0';
+    _needsWrap = true;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UIScrollText::scrollTo(int16_t offset) {
+    _scrollOffset = offset;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIScrollText::scrollToBottom() {
+    _scrollOffset = maxScroll();
+    _dirty = true;
+}
+
+int16_t UIScrollText::maxScroll() const {
+    int16_t contentH = totalContentHeight();
+    int16_t innerH = _h - TAB5_PADDING * 2;  // top + bottom padding
+    if (contentH <= innerH) return 0;
+    return contentH - innerH;
+}
+
+void UIScrollText::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+void UIScrollText::reflow(M5GFX& gfx) {
+    int16_t contentW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 4;
+    _lineCount = wordWrap(gfx, _text, _textSize,
+                          contentW, _lineStarts, _lineLengths,
+                          TAB5_SCROLLTEXT_MAX_LINES);
+    gfx.setTextSize(_textSize);
+    _lineH = (int16_t)(gfx.fontHeight() * _textSize) + 4;
+    clampScroll();
+    _needsWrap = false;
+}
+
+int UIScrollText::wordWrap(M5GFX& gfx, const char* text, float textSize,
+                           int16_t maxWidth, int16_t* lineStarts,
+                           int16_t* lineLengths, int maxLines)
+{
+    gfx.setTextSize(textSize);
+    int lines = 0;
+    int len   = strlen(text);
+    int pos   = 0;
+
+    while (pos < len && lines < maxLines) {
+        int bestBreak = -1;
+        int i = pos;
+        char buf[257];
+
+        while (i < len) {
+            int runLen = i - pos + 1;
+            if (runLen > 255) runLen = 255;
+            memcpy(buf, text + pos, runLen);
+            buf[runLen] = '\0';
+            int16_t tw = gfx.textWidth(buf);
+            if (tw > maxWidth && bestBreak > pos) {
+                break;
+            }
+            if (text[i] == ' ' || text[i] == '-') {
+                bestBreak = i;
+            }
+            if (text[i] == '\n') {
+                bestBreak = i;
+                break;
+            }
+            i++;
+        }
+
+        int lineEnd;
+        int nextPos;
+        if (i >= len) {
+            lineEnd = len;
+            nextPos = len;
+        } else if (text[i] == '\n' || (bestBreak >= pos && text[bestBreak] == '\n')) {
+            int brk = (text[i] == '\n') ? i : bestBreak;
+            lineEnd = brk;
+            nextPos = brk + 1;
+        } else if (bestBreak > pos) {
+            lineEnd = bestBreak + 1;
+            nextPos = bestBreak + 1;
+        } else {
+            lineEnd = (i > pos) ? i : pos + 1;
+            nextPos = lineEnd;
+        }
+
+        lineStarts[lines]  = pos;
+        lineLengths[lines] = lineEnd - pos;
+        lines++;
+        pos = nextPos;
+    }
+
+    if (lines == 0) {
+        lineStarts[0]  = 0;
+        lineLengths[0] = 0;
+        lines = 1;
+    }
+    return lines;
+}
+
+void UIScrollText::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Reflow text if needed
+    if (_needsWrap) {
+        reflow(gfx);
+    }
+
+    // Background fill
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Border
+    gfx.drawRect(_x, _y, _w, _h, rgb888(_borderColor));
+
+    // Inner content area (padded)
+    int16_t innerX = _x + TAB5_PADDING;
+    int16_t innerY = _y + TAB5_PADDING;
+    int16_t innerW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 2;
+    int16_t innerH = _h - TAB5_PADDING * 2;
+
+    // Clip to content area
+    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+
+    // Draw visible text lines
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::top_left);
+    gfx.setTextColor(rgb888(_textColor));
+
+    char lineBuf[257];
+    for (int i = 0; i < _lineCount; i++) {
+        int16_t lineY = innerY + (i * _lineH) - _scrollOffset;
+
+        // Skip lines outside visible area
+        if (lineY + _lineH <= _y || lineY >= _y + _h) continue;
+
+        int len = _lineLengths[i];
+        if (len > 255) len = 255;
+        memcpy(lineBuf, _text + _lineStarts[i], len);
+        // Trim trailing spaces
+        while (len > 0 && lineBuf[len - 1] == ' ') len--;
+        lineBuf[len] = '\0';
+        gfx.drawString(lineBuf, innerX, lineY);
+    }
+
+    // Clear clip
+    gfx.clearClipRect();
+
+    // Scrollbar (only if content overflows)
+    int16_t contentH = totalContentHeight();
+    if (contentH > innerH) {
+        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbAreaH = _h - 2;
+
+        // Scrollbar track
+        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                     rgb888(darken(_bgColor, 60)));
+
+        // Scrollbar thumb
+        float visibleRatio = (float)innerH / (float)contentH;
+        int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+        if (thumbH < 20) thumbH = 20;
+
+        int16_t ms = maxScroll();
+        float scrollRatio = (ms > 0) ? (float)_scrollOffset / (float)ms : 0.0f;
+        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+                                 3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    _dirty = false;
+}
+
+void UIScrollText::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dragging = false;
+    _wasDrag = false;
+    _touchStartY = ty;
+    _touchDownY = ty;
+    _scrollStart = _scrollOffset;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIScrollText::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+
+    int16_t dy = _touchStartY - ty;
+
+    // Check if movement exceeds drag threshold
+    int16_t totalDy = ty - _touchDownY;
+    if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+        _wasDrag = true;
+    }
+
+    if (_wasDrag) {
+        _scrollOffset = _scrollStart + dy;
+        clampScroll();
+        _dirty = true;
+    }
+}
+
+void UIScrollText::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+    _pressed = false;
+    _dragging = false;
+    _wasDrag = false;
+    if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIList
 // ═════════════════════════════════════════════════════════════════════════════
 

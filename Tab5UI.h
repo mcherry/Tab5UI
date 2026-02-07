@@ -5,7 +5,7 @@
  * 5-inch 1280x720 IPS capacitive touchscreen.
  *
  * Widgets: Label, Button, TitleBar, StatusBar, TextRow, IconSquare, IconCircle,
- *          Menu, TextInput, Keyboard, TabView, ConfirmPopup
+ *          Menu, TextInput, Keyboard, TabView, ConfirmPopup, ScrollText
  * All widgets support touch and touch-release event callbacks.
  *
  * License: MIT
@@ -928,6 +928,86 @@ private:
     // Auto-size the popup based on text content
     void autoSize(M5GFX& gfx);
     // Re-use UIInfoPopup's word-wrap (same signature)
+    static int wordWrap(M5GFX& gfx, const char* text, float textSize,
+                        int16_t maxWidth, int16_t* lineStarts,
+                        int16_t* lineLengths, int maxLines);
+};
+
+/*******************************************************************************
+ * UIScrollText — Read-only scrollable word-wrapped text display
+ *
+ * Usage:
+ *   UIScrollText scrollText(20, 60, 600, 400);
+ *   scrollText.setText("A long block of text that will be word-wrapped "
+ *                      "to fit the width of the widget and scrollable "
+ *                      "via touch-drag.");
+ *   ui.addElement(&scrollText);
+ *
+ * The text is word-wrapped to the widget width and scrollable by
+ * touch-dragging up/down.  A scrollbar appears when content overflows.
+ * Explicit newlines (\n) in the text are honored.
+ ******************************************************************************/
+#define TAB5_SCROLLTEXT_MAX_LEN   2048   // Max text buffer size
+#define TAB5_SCROLLTEXT_MAX_LINES 128    // Max wrapped lines
+
+class UIScrollText : public UIElement {
+public:
+    UIScrollText(int16_t x, int16_t y, int16_t w, int16_t h,
+                 uint32_t bgColor   = Tab5Theme::BG_MEDIUM,
+                 uint32_t textColor = Tab5Theme::TEXT_PRIMARY);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // ── Content ──
+    void setText(const char* text);
+    const char* getText() const { return _text; }
+
+    // ── Appearance ──
+    void setTextSize(float s)          { _textSize = s; _needsWrap = true; _dirty = true; }
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+
+    // ── Scroll control ──
+    void scrollTo(int16_t offset);
+    void scrollToTop()                 { scrollTo(0); }
+    void scrollToBottom();
+
+private:
+    char     _text[TAB5_SCROLLTEXT_MAX_LEN];
+    float    _textSize      = TAB5_FONT_SIZE_MD;
+
+    uint32_t _bgColor;
+    uint32_t _textColor;
+    uint32_t _borderColor   = Tab5Theme::BORDER;
+
+    // Word-wrap cache
+    bool     _needsWrap     = true;
+    int      _lineCount     = 0;
+    int16_t  _lineStarts[TAB5_SCROLLTEXT_MAX_LINES];
+    int16_t  _lineLengths[TAB5_SCROLLTEXT_MAX_LINES];
+    int16_t  _lineH         = 0;    // Pixel height per line
+
+    // Scroll state
+    int16_t  _scrollOffset  = 0;
+
+    // Touch-drag state (same pattern as UIList)
+    bool     _dragging      = false;
+    int16_t  _touchStartY   = 0;
+    int16_t  _scrollStart   = 0;
+    int16_t  _touchDownY    = 0;
+    bool     _wasDrag       = false;
+    static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    int16_t  totalContentHeight() const { return _lineCount * _lineH; }
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    void     reflow(M5GFX& gfx);
+
+    // Word-wrap helper (same signature as UIInfoPopup)
     static int wordWrap(M5GFX& gfx, const char* text, float textSize,
                         int16_t maxWidth, int16_t* lineStarts,
                         int16_t* lineLengths, int maxLines);

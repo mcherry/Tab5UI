@@ -20,6 +20,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UITabView** | Multi-page tabbed container with configurable top/bottom tab bar |
 | **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
 | **UIConfirmPopup** | Auto-sized modal confirm popup with title, message, and Yes/No buttons |
+| **UIScrollText** | Read-only scrollable word-wrapped text display with touch-drag scrolling |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -492,6 +493,32 @@ green).  Use `setOnConfirm()` to receive a `ConfirmResult` enum indicating
 which button was pressed.  Tapping outside the popup is treated as **No**.
 The last result is also available via `getResult()`.
 
+### UIScrollText
+
+```cpp
+UIScrollText(x, y, w, h, bgColor, textColor);
+void setText(const char* text);       // Set text content (up to 2048 chars)
+const char* getText() const;
+
+// Appearance
+void setTextSize(float s);            // Font size (default: TAB5_FONT_SIZE_MD)
+void setBgColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setBorderColor(uint32_t c);
+
+// Scroll control
+void scrollTo(int16_t offset);        // Pixel offset from top
+void scrollToTop();
+void scrollToBottom();
+```
+
+**Behavior:** Displays read-only text that is automatically word-wrapped to
+the widget width.  Explicit newlines (`\n`) in the text are honored.  When
+the wrapped text exceeds the visible area, a scrollbar appears on the right
+side and the content can be scrolled by touch-dragging up/down.  The drag
+threshold (8px) prevents accidental scrolls from taps.  Supports up to
+2048 characters and 128 wrapped lines.
+
 ### UIManager
 
 ```cpp
@@ -528,7 +555,8 @@ Tab5UI/
 │   ├── screenshot5_list.png
 │   ├── screenshot6_tab_controls.png
 │   ├── screenshot7_tab_list.png
-│   └── screenshot8_confirm_popup.png
+│   ├── screenshot8_confirm_popup.png
+│   └── screenshot9_tab_text.png
 └── examples/
     ├── Tab5UI_Demo/
     │   └── Tab5UI_Demo.ino           # Full demo sketch
@@ -581,6 +609,9 @@ Tab5UI/
 
 ### Confirm Popup
 ![Confirm popup](screenshots/screenshot8_confirm_popup.png)
+
+### Tab Demo — Scrollable Text
+![Tab Scrollable Text](screenshots/screenshot9_tab_text.png)
 
 ## License
 

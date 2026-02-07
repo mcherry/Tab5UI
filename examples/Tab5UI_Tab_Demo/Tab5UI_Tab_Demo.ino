@@ -1,9 +1,10 @@
 /*******************************************************************************
  * Tab5UI_Tab_Demo.ino — UITabView demo for the Tab5UI library
  *
- * Demonstrates the UITabView widget with two tab pages:
+ * Demonstrates the UITabView widget with three tab pages:
  *   Tab 1 ("Controls"):  Buttons, labels, text rows, and icons
  *   Tab 2 ("Data List"): A scrollable UIList with selectable items
+ *   Tab 3 ("Text"):      A scrollable word-wrapped text display
  *
  * The tab bar is at the top by default.  A button on the Controls tab
  * toggles the tab bar between top and bottom placement.
@@ -77,7 +78,7 @@ UILabel  infoLabel(700, CY + 80, 540, TAB5_LABEL_H,
 
 UITextRow rowDisplay(700, CY + 120, 540, "Display", "1280x720");
 UITextRow rowTouch(700, CY + 160, 540, "Touch", "Capacitive");
-UITextRow rowWidgets(700, CY + 200, 540, "Widgets", "14 types");
+UITextRow rowWidgets(700, CY + 200, 540, "Widgets", "16 types");
 
 // Text input + keyboard (right column, below text rows)
 UITextInput textInput(700, CY + 250, 540, "Type something...");
@@ -117,6 +118,41 @@ UIButton btnClearSel(940, CY + TAB5_PADDING + 50, 280, TAB5_BTN_H,
 UIInfoPopup listPopup("Selection", "No item selected");
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  Tab 3 — "Text"
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIScrollText scrollText(TAB5_PADDING, CY + TAB5_PADDING,
+                         TAB5_SCREEN_W - TAB5_PADDING * 2,
+                         TAB_H - TAB5_TAB_BAR_H - TAB5_PADDING * 2);
+
+// Sample text for the scrollable text display
+static const char SAMPLE_TEXT[] =
+    "Tab5UI Library Overview\n\n"
+    "Tab5UI is a lightweight, Arduino-compatible touchscreen UI widget library "
+    "built on M5GFX for the M5Stack Tab5's 5-inch 1280x720 IPS capacitive "
+    "touchscreen.\n\n"
+    "The library provides a comprehensive set of interactive widgets including "
+    "buttons, labels, text rows, icon squares, icon circles, popup menus, "
+    "on-screen keyboards, text input fields, scrollable lists, tabbed views, "
+    "info popups, confirm popups, and scrollable text displays.\n\n"
+    "All widgets support touch and touch-release event callbacks, making it "
+    "easy to build responsive user interfaces. The UIManager class handles "
+    "element registration, dirty-rectangle redraws, and touch event dispatch.\n\n"
+    "Key Features:\n"
+    "- 16 widget types covering common UI patterns\n"
+    "- Touch-drag scrolling for lists and text\n"
+    "- Modal overlays for menus, keyboards, and popups\n"
+    "- Auto-sizing popups with word-wrapping\n"
+    "- Tabbed views with top or bottom tab bar placement\n"
+    "- Customizable colors and text sizes\n"
+    "- Efficient dirty-rectangle redraw system\n"
+    "- Designed for the 1280x720 resolution of the Tab5\n\n"
+    "This scrollable text widget demonstrates the UIScrollText class, which "
+    "displays read-only word-wrapped text that can be scrolled by dragging up "
+    "and down. A scrollbar appears on the right side when the content exceeds "
+    "the visible area. Try scrolling this text to see it in action!";
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  Helper: reposition elements when tab bar moves top <-> bottom
 // ═════════════════════════════════════════════════════════════════════════════
 void repositionElements() {
@@ -152,6 +188,11 @@ void repositionElements() {
     listSelLabel.setPosition(640, cy + TAB5_PADDING);
     btnShowSel.setPosition(640, cy + TAB5_PADDING + 50);
     btnClearSel.setPosition(940, cy + TAB5_PADDING + 50);
+
+    // Tab 3 elements
+    scrollText.setPosition(TAB5_PADDING, cy + TAB5_PADDING);
+    scrollText.setSize(TAB5_SCREEN_W - TAB5_PADDING * 2,
+                       tabs.contentH() - TAB5_PADDING * 2);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -166,6 +207,7 @@ void setup() {
     // ── Setup Tab View ──────────────────────────────────────────────────────
     int page0 = tabs.addPage("Controls");
     int page1 = tabs.addPage("Data List");
+    int page2 = tabs.addPage("Text");
 
     // ── Page 0: Controls ────────────────────────────────────────────────────
     iconSq1.setIconChar("W");
@@ -335,6 +377,12 @@ void setup() {
     tabs.addChild(page1, &listSelLabel);
     tabs.addChild(page1, &btnShowSel);
     tabs.addChild(page1, &btnClearSel);
+
+    // ── Page 2: Scrollable Text ─────────────────────────────────────────────
+    scrollText.setText(SAMPLE_TEXT);
+
+    // Add children to page 2
+    tabs.addChild(page2, &scrollText);
 
     // ── Tab change callback ─────────────────────────────────────────────────
     tabs.setOnTabChange([](int pageIndex) {
