@@ -1244,6 +1244,24 @@ bool UITabView::hasActiveDirtyChild() const {
     return false;
 }
 
+void UITabView::drawDirtyChildren(M5GFX& gfx) {
+    if (!_visible || _activePage < 0 || _activePage >= _pageCount) return;
+
+    int16_t cy = contentY();
+    int16_t ch = contentH();
+
+    UITabPage& page = _pages[_activePage];
+    gfx.setClipRect(_x, cy, _w, ch);
+    for (int i = 0; i < page.childCount; i++) {
+        UIElement* child = page.children[i];
+        if (child && child->isVisible() && child->isDirty()) {
+            child->draw(gfx);
+            child->setDirty(false);
+        }
+    }
+    gfx.clearClipRect();
+}
+
 bool UITabView::hitTestTabBar(int16_t tx, int16_t ty) const {
     int16_t barY = tabBarY();
     return tx >= _x && tx < _x + _w &&
@@ -2630,18 +2648,21 @@ void UIManager::drawAll() {
 }
 
 void UIManager::drawDirty() {
-    // For tab views: bubble up dirty state from active-page children
-    for (auto* elem : _elements) {
-        if (elem->isTabView() && elem->isVisible()) {
-            UITabView* tv = static_cast<UITabView*>(elem);
-            if (tv->hasActiveDirtyChild()) {
-                tv->setDirty(true);
-            }
-        }
-    }
     _gfx.startWrite();
     for (auto* elem : _elements) {
-        if (elem->isVisible() && elem->isDirty()) {
+        if (!elem->isVisible()) continue;
+
+        if (elem->isTabView()) {
+            UITabView* tv = static_cast<UITabView*>(elem);
+            if (tv->isDirty()) {
+                // Full redraw (page switch, tab bar change, etc.)
+                tv->draw(_gfx);
+                tv->setDirty(false);
+            } else if (tv->hasActiveDirtyChild()) {
+                // Partial redraw — only dirty children, no background clear
+                tv->drawDirtyChildren(_gfx);
+            }
+        } else if (elem->isDirty()) {
             elem->draw(_gfx);
             elem->setDirty(false);
         }

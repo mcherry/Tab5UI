@@ -744,6 +744,8 @@ public:
 
     // Check if any child on the active page is dirty (used by UIManager)
     bool hasActiveDirtyChild() const;
+    // Redraw only dirty children (no background clear, no tab bar redraw)
+    void drawDirtyChildren(M5GFX& gfx);
 
 private:
     UITabPage _pages[TAB5_TAB_MAX_PAGES];
