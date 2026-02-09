@@ -239,6 +239,8 @@ public:
     // Optional left/right text (e.g. back, menu)
     void setLeftText(const char* text);
     void setRightText(const char* text);
+    const char* getLeftText() const  { return _leftText; }
+    const char* getRightText() const { return _rightText; }
     void setOnLeftTouch(TouchCallback cb)  { _onLeftTouch = cb; }
     void setOnRightTouch(TouchCallback cb) { _onRightTouch = cb; }
 
@@ -276,6 +278,9 @@ public:
     void setText(const char* text);
     void setLeftText(const char* text);
     void setRightText(const char* text);
+    const char* getText() const      { return _text; }
+    const char* getLeftText() const  { return _leftText; }
+    const char* getRightText() const { return _rightText; }
 
     void setBgColor(uint32_t c)   { _bgColor = c; _dirty = true; }
     void setTextColor(uint32_t c) { _textColor = c; _dirty = true; }

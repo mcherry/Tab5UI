@@ -170,6 +170,7 @@ void setOnTouchRelease(TouchCallback cb);
 ```cpp
 UILabel(x, y, w, h, "text", color, textSize);
 void setText(const char* text);
+const char* getText() const;
 void setTextColor(uint32_t color);
 void setTextSize(float s);
 void setBgColor(uint32_t color);
@@ -181,6 +182,7 @@ void setAlign(textdatum_t datum);
 ```cpp
 UIButton(x, y, w, h, "label", bgColor, textColor, textSize);
 void setLabel(const char* label);
+const char* getLabel() const;
 void setBgColor(uint32_t c);
 void setPressedColor(uint32_t c);
 void setCornerRadius(int16_t r);
@@ -192,8 +194,11 @@ void setBorderColor(uint32_t c);
 ```cpp
 UITitleBar("title", bgColor, textColor);
 void setTitle(const char* title);
+const char* getTitle() const;
 void setLeftText(const char* text);    // e.g. "< Back"
 void setRightText(const char* text);   // e.g. "Settings"
+const char* getLeftText() const;
+const char* getRightText() const;
 void setOnLeftTouch(TouchCallback cb);
 void setOnRightTouch(TouchCallback cb);
 ```
@@ -205,6 +210,9 @@ UIStatusBar("text", bgColor, textColor);
 void setText(const char* text);
 void setLeftText(const char* text);
 void setRightText(const char* text);
+const char* getText() const;
+const char* getLeftText() const;
+const char* getRightText() const;
 ```
 
 ### UITextRow
@@ -213,6 +221,8 @@ void setRightText(const char* text);
 UITextRow(x, y, w, "Label", "Value", bgColor, labelColor, valueColor);
 void setLabel(const char* label);
 void setValue(const char* value);
+const char* getLabel() const;
+const char* getValue() const;
 void setShowDivider(bool show);
 ```
 
