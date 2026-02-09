@@ -16,6 +16,12 @@
 #include <M5GFX.h>
 #include "Tab5UI.h"
 
+// Icon headers for UIIconButton demo
+#include "icons/icon_home.h"
+#include "icons/icon_search.h"
+#include "icons/icon_setting.h"
+#include "icons/icon_camera.h"
+
 // ── Display & UI Manager ────────────────────────────────────────────────────
 M5GFX display;
 UIManager ui(display);
@@ -85,6 +91,15 @@ UITextInput textInput(700, CY + 250, 540, "Type something...");
 UILabel     inputResult(700, CY + 310, 540, TAB5_LABEL_H,
                         "Submitted: (none)", Tab5Theme::ACCENT, TAB5_FONT_SIZE_SM);
 UIKeyboard  keyboard;
+
+// Icon buttons (right column, below text input)
+UILabel iconBtnLabel(700, CY + 355, 540, TAB5_LABEL_H,
+                     "Icon Buttons:", Tab5Theme::TEXT_SECONDARY, TAB5_FONT_SIZE_SM);
+UIIconButton iconBtn1(700,  CY + 395, 56, 56, "Home",   icon_home,    icon_home_size,    Tab5Theme::PRIMARY);
+UIIconButton iconBtn2(770,  CY + 395, 56, 56, "Search", icon_search,  icon_search_size,  Tab5Theme::SECONDARY);
+UIIconButton iconBtn3(840,  CY + 395, 56, 56, "Settings", icon_setting, icon_setting_size, Tab5Theme::ACCENT);
+UIIconButton iconBtn4(910,  CY + 395, 56, 56, "Camera", icon_camera,  icon_camera_size,  Tab5Theme::DANGER);
+UIInfoPopup iconPopup("Icon Button", "Tapped!");
 
 UIInfoPopup popup("Info", "Button pressed!");
 
@@ -201,6 +216,11 @@ void repositionElements() {
     radio3.setPosition(TAB5_PADDING + 320, cy + 410);
     btnConfirm.setPosition(TAB5_PADDING, cy + 470);
     confirmResult.setPosition(TAB5_PADDING + 320, cy + 470);
+    iconBtnLabel.setPosition(700, cy + 355);
+    iconBtn1.setPosition(700,  cy + 395);
+    iconBtn2.setPosition(770,  cy + 395);
+    iconBtn3.setPosition(840,  cy + 395);
+    iconBtn4.setPosition(910,  cy + 395);
 
     // Tab 2 elements
     int16_t listH = tabs.contentH() - TAB5_PADDING * 2;
@@ -321,6 +341,32 @@ void setup() {
         statusBar.setText("Profile C selected");
     });
 
+    // ── Icon Button callbacks ──
+    iconBtn1.setOnTouchRelease([](TouchEvent e) {
+        iconPopup.setTitle("Icon Button");
+        iconPopup.setMessage("Icon: Home");
+        iconPopup.show();
+        statusBar.setText("Icon: Home");
+    });
+    iconBtn2.setOnTouchRelease([](TouchEvent e) {
+        iconPopup.setTitle("Icon Button");
+        iconPopup.setMessage("Icon: Search");
+        iconPopup.show();
+        statusBar.setText("Icon: Search");
+    });
+    iconBtn3.setOnTouchRelease([](TouchEvent e) {
+        iconPopup.setTitle("Icon Button");
+        iconPopup.setMessage("Icon: Settings");
+        iconPopup.show();
+        statusBar.setText("Icon: Settings");
+    });
+    iconBtn4.setOnTouchRelease([](TouchEvent e) {
+        iconPopup.setTitle("Icon Button");
+        iconPopup.setMessage("Icon: Camera");
+        iconPopup.show();
+        statusBar.setText("Icon: Camera");
+    });
+
     // Tab position toggle button
     btnTabPos.setBorderColor(Tab5Theme::PRIMARY);
     btnTabPos.setOnTouchRelease([](TouchEvent e) {
@@ -367,6 +413,11 @@ void setup() {
     tabs.addChild(page0, &radio3);
     tabs.addChild(page0, &btnConfirm);
     tabs.addChild(page0, &confirmResult);
+    tabs.addChild(page0, &iconBtnLabel);
+    tabs.addChild(page0, &iconBtn1);
+    tabs.addChild(page0, &iconBtn2);
+    tabs.addChild(page0, &iconBtn3);
+    tabs.addChild(page0, &iconBtn4);
 
     // ── Page 1: Data List ───────────────────────────────────────────────────
 
@@ -485,6 +536,7 @@ void setup() {
     // Modal elements added last for z-order
     ui.addElement(&popup);
     ui.addElement(&listPopup);
+    ui.addElement(&iconPopup);
     ui.addElement(&confirmPopup);
     ui.addElement(&keyboard);
 

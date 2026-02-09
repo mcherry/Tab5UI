@@ -4,8 +4,9 @@
  * A lightweight UI widget library built on M5GFX for the M5Stack Tab5's
  * 5-inch 1280x720 IPS capacitive touchscreen.
  *
- * Widgets: Label, Button, TitleBar, StatusBar, TextRow, IconSquare, IconCircle,
- *          Menu, TextInput, Keyboard, TabView, ConfirmPopup, ScrollText
+ * Widgets: Label, Button, IconButton, TitleBar, StatusBar, TextRow,
+ *          IconSquare, IconCircle, Menu, TextInput, Keyboard, TabView,
+ *          ConfirmPopup, ScrollText
  * All widgets support touch and touch-release event callbacks.
  *
  * License: MIT
@@ -226,6 +227,56 @@ private:
     float    _textSize;
     int16_t  _radius    = TAB5_BTN_R;
     bool     _hasBorder = false;
+};
+
+/*******************************************************************************
+ * UIIconButton — Button that displays a PROGMEM PNG icon with text fallback
+ *
+ * Renders a 32×32 PNG icon (from an included icon header) centered on a
+ * rounded-rectangle button.  Shares the same visual style and touch behavior
+ * as UIButton.  If no icon data is set, the button renders its label text
+ * exactly like a standard UIButton.
+ *
+ * Usage:
+ *   #include "icons/icon_home.h"
+ *   UIIconButton btn(x, y, 56, 56, "Home", icon_home, icon_home_size);
+ ******************************************************************************/
+class UIIconButton : public UIElement {
+public:
+    UIIconButton(int16_t x, int16_t y, int16_t w, int16_t h,
+                 const char* label = "",
+                 const uint8_t* iconData = nullptr,
+                 uint32_t iconSize = 0,
+                 uint32_t bgColor   = Tab5Theme::PRIMARY,
+                 uint32_t textColor = Tab5Theme::TEXT_PRIMARY,
+                 float textSize     = TAB5_FONT_SIZE_MD);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    void setLabel(const char* label);
+    const char* getLabel() const { return _label; }
+
+    void setIcon(const uint8_t* data, uint32_t size) { _iconData = data; _iconSize = size; _dirty = true; }
+    void setBgColor(uint32_t c)      { _bgColor = c; _dirty = true; }
+    void setPressedColor(uint32_t c)  { _pressedColor = c; }
+    void setTextColor(uint32_t c)     { _textColor = c; _dirty = true; }
+    void setTextSize(float s)         { _textSize = s; _dirty = true; }
+    void setCornerRadius(int16_t r)   { _radius = r; _dirty = true; }
+    void setBorderColor(uint32_t c)   { _borderColor = c; _hasBorder = true; _dirty = true; }
+
+private:
+    char           _label[64];
+    const uint8_t* _iconData;
+    uint32_t       _iconSize;
+    uint32_t       _bgColor;
+    uint32_t       _pressedColor;
+    uint32_t       _textColor;
+    uint32_t       _borderColor = Tab5Theme::BORDER;
+    float          _textSize;
+    int16_t        _radius    = TAB5_BTN_R;
+    bool           _hasBorder = false;
 };
 
 /*******************************************************************************

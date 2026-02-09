@@ -8,6 +8,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 |---|---|
 | **UILabel** | Static/dynamic text with alignment, color, and background options |
 | **UIButton** | Rounded-rect button with press feedback and customizable colors |
+| **UIIconButton** | Button with PROGMEM PNG icon (32×32) and text fallback, same styling as UIButton |
 | **UITitleBar** | Full-width top bar with center title, optional left/right touch zones |
 | **UIStatusBar** | Full-width bottom bar with left/center/right text |
 | **UITextRow** | Key-value row with label on left, value on right, and dividers |
@@ -246,7 +247,34 @@ void setCornerRadius(int16_t r);
 void setBorderColor(uint32_t c);
 ```
 
-### UITitleBar
+### UIIconButton
+
+A button that displays a 32×32 PROGMEM PNG icon instead of text.  Falls back to label text if no icon data is provided.  Has the same visual style and touch behavior as `UIButton`.
+
+```cpp
+#include "icons/icon_home.h"   // Include the desired icon header
+
+UIIconButton(x, y, w, h, "label", iconData, iconSize, bgColor, textColor, textSize);
+void setLabel(const char* label);
+const char* getLabel() const;
+void setIcon(const uint8_t* data, uint32_t size);  // Change icon at runtime
+void setBgColor(uint32_t c);
+void setPressedColor(uint32_t c);
+void setCornerRadius(int16_t r);
+void setBorderColor(uint32_t c);
+```
+
+**Example:**
+```cpp
+#include "icons/icon_home.h"
+
+UIIconButton homeBtn(100, 200, 56, 56, "Home", icon_home, icon_home_size, Tab5Theme::PRIMARY);
+homeBtn.setOnTouchRelease([](TouchEvent e) {
+    Serial.println("Home tapped!");
+});
+```
+
+> The `icons/` directory contains 55 ready-to-use icon headers converted from [IconPark](https://github.com/bytedance/IconPark) (Apache 2.0).  See `icons/README.md` for the full list.
 
 ```cpp
 UITitleBar("title", bgColor, textColor);
@@ -822,6 +850,12 @@ Tab5UI/
 ├── library.json                      # PlatformIO metadata
 ├── README.md                         # This file
 ├── LICENSE                           # GNU GPL v3
+├── icons/                            # 32×32 PROGMEM PNG icon headers
+│   ├── README.md                     # Icon attribution & usage
+│   ├── LICENSE                       # Apache 2.0 (IconPark)
+│   ├── icon_home.h                   # Example: home icon
+│   ├── icon_search.h                 # Example: search icon
+│   └── ... (55 icons total)          # See icons/README.md for full list
 ├── screenshots/                      # Demo screenshots
 │   ├── screenshot1_initial.png
 │   ├── screenshot2_menu.png
@@ -896,3 +930,7 @@ Tab5UI/
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+## Icon Attribution
+
+The icons included in the `icons/` directory are from [**IconPark**](https://github.com/bytedance/IconPark) by **ByteDance, Inc.**, licensed under the [Apache License 2.0](icons/LICENSE). The original SVG icons were converted to 32×32 pixel PNG images and embedded as `PROGMEM` C byte arrays for use on embedded platforms.

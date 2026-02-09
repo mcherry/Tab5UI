@@ -189,6 +189,82 @@ void UIButton::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIIconButton
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIIconButton::UIIconButton(int16_t x, int16_t y, int16_t w, int16_t h,
+                           const char* label, const uint8_t* iconData,
+                           uint32_t iconSize, uint32_t bgColor,
+                           uint32_t textColor, float textSize)
+    : UIElement(x, y, w, h)
+    , _iconData(iconData)
+    , _iconSize(iconSize)
+    , _bgColor(bgColor)
+    , _pressedColor(darken(bgColor))
+    , _textColor(textColor)
+    , _textSize(textSize)
+{
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+}
+
+void UIIconButton::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIIconButton::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    uint32_t bg = _pressed ? rgb888(_pressedColor) : rgb888(_bgColor);
+
+    if (!_enabled) {
+        bg = rgb888(Tab5Theme::BORDER);
+    }
+
+    // Rounded rectangle body
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, _radius, bg);
+
+    // Optional border
+    if (_hasBorder) {
+        gfx.drawRoundRect(_x, _y, _w, _h, _radius, rgb888(_borderColor));
+    }
+
+    // Draw icon if available, otherwise fall back to text label
+    if (_iconData && _iconSize > 0) {
+        // Center the 32×32 icon in the button
+        int16_t ix = _x + (_w - 32) / 2;
+        int16_t iy = _y + (_h - 32) / 2;
+        gfx.drawPng(_iconData, _iconSize, ix, iy, 32, 32);
+    } else {
+        // Text fallback (same as UIButton)
+        gfx.setTextSize(_textSize);
+        gfx.setTextDatum(textdatum_t::middle_center);
+        uint32_t tc = _enabled ? rgb888(_textColor) : rgb888(Tab5Theme::TEXT_DISABLED);
+        gfx.setTextColor(tc);
+        gfx.drawString(_label, _x + _w / 2, _y + _h / 2);
+    }
+
+    _dirty = false;
+}
+
+void UIIconButton::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIIconButton::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UITitleBar
 // ═════════════════════════════════════════════════════════════════════════════
 
