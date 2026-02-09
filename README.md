@@ -9,6 +9,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UILabel** | Static/dynamic text with alignment, color, and background options |
 | **UIButton** | Rounded-rect button with press feedback and customizable colors |
 | **UIIconButton** | Button with PROGMEM PNG icon (32×32) and text fallback, same styling as UIButton |
+| **UISlider** | Horizontal slider with draggable thumb, configurable min/max range, and onChange callback |
 | **UITitleBar** | Full-width top bar with center title, optional left/right touch zones |
 | **UIStatusBar** | Full-width bottom bar with left/center/right text |
 | **UITextRow** | Key-value row with label on left, value on right, and dividers |
@@ -276,8 +277,41 @@ homeBtn.setOnTouchRelease([](TouchEvent e) {
 
 > The `icons/` directory contains 55 ready-to-use icon headers converted from [IconPark](https://github.com/bytedance/IconPark) (Apache 2.0).  See `icons/README.md` for the full list.
 
+### UISlider
+
+A horizontal slider with a draggable thumb.  Tap anywhere on the track or drag the thumb to set the value.  An `onChange` callback fires whenever the value changes.  Both the label and numeric value display are optional (off by default).
+
 ```cpp
-UITitleBar("title", bgColor, textColor);
+UISlider(x, y, w, h, minVal, maxVal, value, trackColor, fillColor, thumbColor);
+void setValue(int v);
+int  getValue() const;
+void setRange(int minVal, int maxVal);
+int  getMin() const;
+int  getMax() const;
+void setTrackColor(uint32_t c);
+void setFillColor(uint32_t c);
+void setThumbColor(uint32_t c);
+void setThumbRadius(int16_t r);
+void setLabel(const char* label);    // Built-in label text (drawn above track)
+void setShowLabel(bool show);        // Show/hide label (default: off)
+void setShowValue(bool show);        // Show/hide numeric value (default: off)
+void setOnChange(SliderChangeCallback cb);  // void(int value)
+```
+
+**Example:**
+```cpp
+UISlider brightness(100, 200, 400, 60, 0, 100, 50);
+brightness.setShowLabel(true);
+brightness.setShowValue(true);
+brightness.setLabel("Brightness: 50");
+brightness.setOnChange([](int value) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Brightness: %d", value);
+    brightness.setLabel(buf);
+});
+```
+
+### UITitleBar
 void setTitle(const char* title);
 const char* getTitle() const;
 void setLeftText(const char* text);    // e.g. "< Back"

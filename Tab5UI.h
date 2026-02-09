@@ -4,7 +4,7 @@
  * A lightweight UI widget library built on M5GFX for the M5Stack Tab5's
  * 5-inch 1280x720 IPS capacitive touchscreen.
  *
- * Widgets: Label, Button, IconButton, TitleBar, StatusBar, TextRow,
+ * Widgets: Label, Button, IconButton, Slider, TitleBar, StatusBar, TextRow,
  *          IconSquare, IconCircle, Menu, TextInput, Keyboard, TabView,
  *          ConfirmPopup, ScrollText
  * All widgets support touch and touch-release event callbacks.
@@ -57,7 +57,7 @@ namespace Tab5UI {
 #define TAB5_LIST_SCROLLBAR_W 6     // Scrollbar width
 #define TAB5_TAB_BAR_H      48      // Tab bar height
 #define TAB5_TAB_MAX_PAGES  8       // Max pages in a tab view
-#define TAB5_TAB_MAX_CHILDREN 32    // Max child elements per page
+#define TAB5_TAB_MAX_CHILDREN 36    // Max child elements per page
 #define TAB5_FONT_SIZE_SM   1.4f    // Small text
 #define TAB5_FONT_SIZE_MD   1.8f    // Medium text (labels, buttons)
 #define TAB5_FONT_SIZE_LG   2.4f    // Large text (title bar)
@@ -277,6 +277,73 @@ private:
     float          _textSize;
     int16_t        _radius    = TAB5_BTN_R;
     bool           _hasBorder = false;
+};
+
+/*******************************************************************************
+ * UISlider — Horizontal slider with draggable thumb
+ *
+ * A horizontal slider with a configurable min/max range.  The user drags the
+ * thumb (or taps anywhere on the track) to set the value.  An onChange
+ * callback fires whenever the value changes.
+ *
+ * Usage:
+ *   UISlider slider(100, 200, 400, 40, 0, 100);
+ *   slider.setOnChange([](int value) { Serial.println(value); });
+ ******************************************************************************/
+using SliderChangeCallback = std::function<void(int value)>;
+
+class UISlider : public UIElement {
+public:
+    UISlider(int16_t x, int16_t y, int16_t w, int16_t h,
+             int minVal = 0, int maxVal = 100, int value = 0,
+             uint32_t trackColor  = Tab5Theme::SURFACE,
+             uint32_t fillColor   = Tab5Theme::PRIMARY,
+             uint32_t thumbColor  = Tab5Theme::TEXT_PRIMARY);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // Value accessors
+    void setValue(int v);
+    int  getValue() const { return _value; }
+    void setRange(int minVal, int maxVal);
+    int  getMin() const { return _minVal; }
+    int  getMax() const { return _maxVal; }
+
+    // Appearance
+    void setTrackColor(uint32_t c) { _trackColor = c; _dirty = true; }
+    void setFillColor(uint32_t c)  { _fillColor = c; _dirty = true; }
+    void setThumbColor(uint32_t c) { _thumbColor = c; _dirty = true; }
+    void setThumbRadius(int16_t r) { _thumbR = r; _dirty = true; }
+    void setShowValue(bool show)   { _showValue = show; _dirty = true; }
+
+    // Optional label (drawn above the track)
+    void setLabel(const char* label);
+    const char* getLabel() const   { return _label; }
+    void setShowLabel(bool show)   { _showLabel = show; _dirty = true; }
+
+    // Callback
+    void setOnChange(SliderChangeCallback cb) { _onChange = cb; }
+
+private:
+    void _updateFromTouch(int16_t tx);
+
+    int      _minVal;
+    int      _maxVal;
+    int      _value;
+    uint32_t _trackColor;
+    uint32_t _fillColor;
+    uint32_t _thumbColor;
+    int16_t  _thumbR     = 14;
+    int16_t  _trackH     = 8;
+    bool     _showValue  = false;
+    bool     _showLabel  = false;
+    bool     _dragging   = false;
+    char     _label[64]  = "";
+
+    SliderChangeCallback _onChange = nullptr;
 };
 
 /*******************************************************************************

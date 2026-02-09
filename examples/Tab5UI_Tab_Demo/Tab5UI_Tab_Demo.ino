@@ -101,6 +101,9 @@ UIIconButton iconBtn3(840,  CY + 395, 56, 56, "Settings", icon_setting, icon_set
 UIIconButton iconBtn4(910,  CY + 395, 56, 56, "Camera", icon_camera,  icon_camera_size,  Tab5Theme::DANGER);
 UIInfoPopup iconPopup("Icon Button", "Tapped!");
 
+// Slider (right column, below icon buttons)
+UISlider slider(700, CY + 460, 540, 60, 0, 100, 50);
+
 UIInfoPopup popup("Info", "Button pressed!");
 
 // Checkboxes (left column, below icons)
@@ -221,6 +224,7 @@ void repositionElements() {
     iconBtn2.setPosition(770,  cy + 395);
     iconBtn3.setPosition(840,  cy + 395);
     iconBtn4.setPosition(910,  cy + 395);
+    slider.setPosition(700, cy + 460);
 
     // Tab 2 elements
     int16_t listH = tabs.contentH() - TAB5_PADDING * 2;
@@ -367,6 +371,17 @@ void setup() {
         statusBar.setText("Icon: Camera");
     });
 
+    // ── Slider ──
+    slider.setShowLabel(true);
+    slider.setShowValue(true);
+    slider.setLabel("Brightness: 50");
+    slider.setOnChange([](int value) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Brightness: %d", value);
+        slider.setLabel(buf);
+        statusBar.setText(buf);
+    });
+
     // Tab position toggle button
     btnTabPos.setBorderColor(Tab5Theme::PRIMARY);
     btnTabPos.setOnTouchRelease([](TouchEvent e) {
@@ -418,6 +433,7 @@ void setup() {
     tabs.addChild(page0, &iconBtn2);
     tabs.addChild(page0, &iconBtn3);
     tabs.addChild(page0, &iconBtn4);
+    tabs.addChild(page0, &slider);
 
     // ── Page 1: Data List ───────────────────────────────────────────────────
 

@@ -265,6 +265,165 @@ void UIIconButton::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UISlider
+// ═════════════════════════════════════════════════════════════════════════════
+
+UISlider::UISlider(int16_t x, int16_t y, int16_t w, int16_t h,
+                   int minVal, int maxVal, int value,
+                   uint32_t trackColor, uint32_t fillColor, uint32_t thumbColor)
+    : UIElement(x, y, w, h)
+    , _minVal(minVal)
+    , _maxVal(maxVal)
+    , _value(value)
+    , _trackColor(trackColor)
+    , _fillColor(fillColor)
+    , _thumbColor(thumbColor)
+{
+    if (_value < _minVal) _value = _minVal;
+    if (_value > _maxVal) _value = _maxVal;
+}
+
+void UISlider::setValue(int v) {
+    if (v < _minVal) v = _minVal;
+    if (v > _maxVal) v = _maxVal;
+    if (v != _value) {
+        _value = v;
+        _dirty = true;
+    }
+}
+
+void UISlider::setRange(int minVal, int maxVal) {
+    _minVal = minVal;
+    _maxVal = maxVal;
+    if (_value < _minVal) _value = _minVal;
+    if (_value > _maxVal) _value = _maxVal;
+    _dirty = true;
+}
+
+void UISlider::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UISlider::_updateFromTouch(int16_t tx) {
+    // Track area: inset by thumb radius on each side
+    int16_t trackLeft  = _x + _thumbR;
+    int16_t trackRight = _x + _w - _thumbR;
+    int16_t trackW     = trackRight - trackLeft;
+    if (trackW <= 0) return;
+
+    // Clamp touch to track bounds
+    int16_t clamped = tx;
+    if (clamped < trackLeft)  clamped = trackLeft;
+    if (clamped > trackRight) clamped = trackRight;
+
+    // Map position to value
+    int range = _maxVal - _minVal;
+    int newVal = _minVal + (int)(((int32_t)(clamped - trackLeft) * range + trackW / 2) / trackW);
+    if (newVal < _minVal) newVal = _minVal;
+    if (newVal > _maxVal) newVal = _maxVal;
+
+    if (newVal != _value) {
+        _value = newVal;
+        _dirty = true;
+        if (_onChange) _onChange(_value);
+    }
+}
+
+void UISlider::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Clear background area
+    gfx.fillRect(_x, _y, _w, _h, rgb888(Tab5Theme::BG_DARK));
+
+    // Optional label (drawn in top portion of the widget area)
+    int16_t labelOffset = 0;
+    if (_showLabel && _label[0] != '\0') {
+        labelOffset = 22;
+        gfx.setTextSize(TAB5_FONT_SIZE_SM);
+        gfx.setTextDatum(textdatum_t::top_left);
+        gfx.setTextColor(rgb888(Tab5Theme::TEXT_SECONDARY));
+        gfx.drawString(_label, _x, _y);
+    }
+
+    int16_t trackLeft  = _x + _thumbR;
+    int16_t trackRight = _x + _w - _thumbR;
+    int16_t trackW     = trackRight - trackLeft;
+    int16_t sliderCenterY = _y + labelOffset + (_h - labelOffset) / 2;
+    int16_t trackY     = sliderCenterY - _trackH / 2;
+
+    // Value label area (takes ~40px from right if enabled)
+    int16_t labelW = 0;
+    if (_showValue) {
+        labelW = 50;
+        trackRight = _x + _w - _thumbR - labelW;
+        trackW = trackRight - trackLeft;
+    }
+
+    // Draw background track (full width, rounded)
+    int16_t trackR = _trackH / 2;
+    gfx.fillSmoothRoundRect(trackLeft, trackY, trackW, _trackH, trackR,
+                            rgb888(_trackColor));
+
+    // Calculate thumb position
+    float ratio = 0.0f;
+    if (_maxVal > _minVal) {
+        ratio = (float)(_value - _minVal) / (float)(_maxVal - _minVal);
+    }
+    int16_t thumbX = trackLeft + (int16_t)(ratio * trackW);
+
+    // Draw filled portion (left of thumb)
+    if (thumbX > trackLeft) {
+        int16_t fillW = thumbX - trackLeft;
+        gfx.fillSmoothRoundRect(trackLeft, trackY, fillW, _trackH, trackR,
+                                rgb888(_fillColor));
+    }
+
+    // Draw thumb circle
+    uint32_t tc = _dragging ? rgb888(darken(_thumbColor)) : rgb888(_thumbColor);
+    gfx.fillSmoothCircle(thumbX, sliderCenterY, _thumbR, tc);
+
+    // Optional border on thumb
+    gfx.drawCircle(thumbX, sliderCenterY, _thumbR, rgb888(darken(_fillColor)));
+
+    // Value text
+    if (_showValue) {
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%d", _value);
+        gfx.setTextSize(TAB5_FONT_SIZE_SM);
+        gfx.setTextDatum(textdatum_t::middle_left);
+        gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+        gfx.drawString(buf, _x + _w - labelW + 8, sliderCenterY);
+    }
+
+    _dirty = false;
+}
+
+void UISlider::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _dragging = true;
+    _pressed = true;
+    _updateFromTouch(tx);
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UISlider::handleTouchMove(int16_t tx, int16_t ty) {
+    if (_dragging) {
+        _updateFromTouch(tx);
+    }
+}
+
+void UISlider::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_dragging) {
+        _dragging = false;
+        _pressed = false;
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UITitleBar
 // ═════════════════════════════════════════════════════════════════════════════
 
