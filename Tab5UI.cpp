@@ -775,13 +775,13 @@ void UIKeyboard::buildLayouts() {
         }
         setKey(_keysLower[2][8], "Bksp", '\b', 1.4f, Tab5Theme::BG_MEDIUM); // Backspace
 
-        // Row 3: 123 + Space + . + Done + Hide
+        // Row 3: 123 + Space + . + Done + Enter
         _colsLower[3] = 5;
         setKey(_keysLower[3][0], "123",  0, 1.4f, Tab5Theme::BG_MEDIUM);
         setKey(_keysLower[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);      // Space bar
         setKey(_keysLower[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
         setKey(_keysLower[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
-        setKey(_keysLower[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM); // Hide
+        setKey(_keysLower[3][4], "Ent",  '\r', 1.2f, Tab5Theme::BG_MEDIUM);  // Enter
     }
 
     // ─── UPPERCASE ───
@@ -806,7 +806,7 @@ void UIKeyboard::buildLayouts() {
         setKey(_keysUpper[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);
         setKey(_keysUpper[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
         setKey(_keysUpper[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
-        setKey(_keysUpper[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM);
+        setKey(_keysUpper[3][4], "Ent",  '\r', 1.2f, Tab5Theme::BG_MEDIUM);
     }
 
     // ─── SYMBOLS ───
@@ -849,7 +849,7 @@ void UIKeyboard::buildLayouts() {
         setKey(_keysSymbols[3][1], " ",  ' ', 5.0f, Tab5Theme::SURFACE);
         setKey(_keysSymbols[3][2], ".",  '.', 1.0f, Tab5Theme::SURFACE);
         setKey(_keysSymbols[3][3], "Done", '\n', 1.6f, Tab5Theme::PRIMARY);
-        setKey(_keysSymbols[3][4], "Hide",  '\0', 1.2f, Tab5Theme::BG_MEDIUM);
+        setKey(_keysSymbols[3][4], "Ent",  '\r', 1.2f, Tab5Theme::BG_MEDIUM);
     }
 }
 
@@ -975,11 +975,7 @@ void UIKeyboard::handleTouchUp(int16_t tx, int16_t ty) {
         const UIKey& key = _keys[row][col];
 
         if (key.value != 0) {
-            // Regular character or special (backspace, enter, hide)
-            if (key.value == '\0') {
-                // Hide key
-                hide();
-            }
+            // Regular character or special (backspace, enter, done)
             if (_onKey) _onKey(key.value);
 
             // After typing a letter in UPPER mode, revert to LOWER
@@ -995,10 +991,6 @@ void UIKeyboard::handleTouchUp(int16_t tx, int16_t ty) {
                 setLayer(SYMBOLS);
             } else if (strcmp(key.label, "ABC") == 0) {
                 setLayer(LOWER);
-            } else if (strcmp(key.label, "Hide") == 0) {
-                // Hide
-                hide();
-                if (_onKey) _onKey('\0');
             }
         }
     }
@@ -1066,12 +1058,17 @@ void UITextInput::blur() {
 
 void UITextInput::onKeyPress(char ch) {
     if (ch == '\0') {
-        // Hide key pressed
+        // Hide key pressed (legacy)
+        blur();
+        return;
+    }
+    if (ch == '\r') {
+        // Enter key — for single-line, just hide keyboard
         blur();
         return;
     }
     if (ch == '\n') {
-        // Enter/Done
+        // Done key — submit and hide
         if (_onSubmit) _onSubmit(_text);
         blur();
         return;
@@ -3615,6 +3612,529 @@ void UIDropdown::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UITextArea
+// ═════════════════════════════════════════════════════════════════════════════
+
+UITextArea::UITextArea(int16_t x, int16_t y, int16_t w, int16_t h,
+                       const char* placeholder,
+                       uint32_t bgColor, uint32_t textColor,
+                       uint32_t borderColor)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor)
+    , _textColor(textColor)
+    , _borderColor(borderColor)
+{
+    _text[0] = '\0';
+    strncpy(_placeholder, placeholder, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+}
+
+void UITextArea::setText(const char* text) {
+    strncpy(_text, text, _maxLen);
+    _text[_maxLen] = '\0';
+    _cursorPos = (int)strlen(_text);
+    _needsWrap = true;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UITextArea::clear() {
+    _text[0] = '\0';
+    _cursorPos = 0;
+    _needsWrap = true;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UITextArea::setPlaceholder(const char* ph) {
+    strncpy(_placeholder, ph, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+    _dirty = true;
+}
+
+void UITextArea::focus() {
+    if (_focused) return;
+    _focused = true;
+    _dirty = true;
+    if (_keyboard) {
+        _keyboard->setOnKey([this](char ch) { this->onKeyPress(ch); });
+        _keyboard->show();
+    }
+}
+
+void UITextArea::blur() {
+    if (!_focused) return;
+    _focused = false;
+    _dirty = true;
+    if (_keyboard && _keyboard->isOpen()) {
+        _keyboard->hide();
+    }
+}
+
+void UITextArea::onKeyPress(char ch) {
+    if (ch == '\0') {
+        // Hide key pressed (legacy)
+        blur();
+        return;
+    }
+    if (ch == '\n') {
+        // Done key — submit and close keyboard
+        if (_onSubmit) _onSubmit(_text);
+        blur();
+        return;
+    }
+    if (ch == '\r') {
+        // Enter key — insert a newline into the text
+        int len = (int)strlen(_text);
+        if (len < _maxLen) {
+            for (int i = len; i >= _cursorPos; i--) {
+                _text[i + 1] = _text[i];
+            }
+            _text[_cursorPos] = '\n';
+            _cursorPos++;
+            _needsWrap = true;
+            _dirty = true;
+            if (_onChange) _onChange(_text);
+        }
+        return;
+    }
+    if (ch == '\b') {
+        // Backspace
+        if (_cursorPos > 0) {
+            int len = (int)strlen(_text);
+            // Shift characters after cursor left by 1
+            for (int i = _cursorPos - 1; i < len; i++) {
+                _text[i] = _text[i + 1];
+            }
+            _cursorPos--;
+            _needsWrap = true;
+            _dirty = true;
+            if (_onChange) _onChange(_text);
+        }
+        return;
+    }
+    // Regular character — insert at cursor position
+    int len = (int)strlen(_text);
+    if (len < _maxLen) {
+        // Shift characters after cursor right by 1
+        for (int i = len; i >= _cursorPos; i--) {
+            _text[i + 1] = _text[i];
+        }
+        _text[_cursorPos] = ch;
+        _cursorPos++;
+        _needsWrap = true;
+        _dirty = true;
+        if (_onChange) _onChange(_text);
+    }
+}
+
+void UITextArea::scrollTo(int16_t offset) {
+    _scrollOffset = offset;
+    clampScroll();
+    _dirty = true;
+}
+
+void UITextArea::scrollToBottom() {
+    _scrollOffset = maxScroll();
+    _dirty = true;
+}
+
+int16_t UITextArea::totalContentHeight() const {
+    int16_t total = 0;
+    for (int i = 0; i < _lineCount; i++) {
+        total += _lines[i].height;
+    }
+    return total;
+}
+
+int16_t UITextArea::maxScroll() const {
+    int16_t contentH = totalContentHeight();
+    int16_t innerH = _h - TAB5_PADDING * 2;
+    if (contentH <= innerH) return 0;
+    return contentH - innerH;
+}
+
+void UITextArea::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+// ── Word-wrap the text buffer into display lines ──
+void UITextArea::reflow(M5GFX& gfx) {
+    int16_t contentW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 4;
+    _lineCount = 0;
+
+    gfx.setTextSize(_textSize);
+    int16_t lineH = gfx.fontHeight() + 4;
+
+    int len = (int)strlen(_text);
+    if (len == 0) {
+        // Empty text — one blank line
+        _lines[0].start = 0;
+        _lines[0].length = 0;
+        _lines[0].height = lineH;
+        _lineCount = 1;
+        _needsWrap = false;
+        return;
+    }
+
+    int pos = 0;
+    while (pos <= len && _lineCount < TAB5_TEXTAREA_MAX_LINES) {
+        // Check for explicit newline at the current position
+        if (pos < len && _text[pos] == '\n') {
+            // Empty line (newline character creates a blank line)
+            TextAreaLine& sl = _lines[_lineCount++];
+            sl.start = pos;
+            sl.length = 0;
+            sl.height = lineH;
+            pos++;
+            continue;
+        }
+
+        // Find the end of this logical line (up to next newline or end of text)
+        int lineEnd = pos;
+        while (lineEnd < len && _text[lineEnd] != '\n') lineEnd++;
+
+        int srcLen = lineEnd - pos;
+
+        if (srcLen == 0) {
+            // End of text right after a newline — break
+            break;
+        }
+
+        // Word-wrap this segment
+        int dPos = 0;
+        char buf[257];
+
+        while (dPos < srcLen && _lineCount < TAB5_TEXTAREA_MAX_LINES) {
+            int bestBreak = -1;
+            int di = dPos;
+
+            while (di < srcLen) {
+                int runLen = di - dPos + 1;
+                if (runLen > 255) runLen = 255;
+                memcpy(buf, _text + pos + dPos, runLen);
+                buf[runLen] = '\0';
+                int16_t tw = gfx.textWidth(buf);
+                if (tw > contentW && bestBreak >= 0) {
+                    break;
+                }
+                if (_text[pos + di] == ' ' || _text[pos + di] == '-') {
+                    bestBreak = di;
+                }
+                di++;
+            }
+
+            int wrapEnd, nextDPos;
+            if (di >= srcLen) {
+                wrapEnd = srcLen;
+                nextDPos = srcLen;
+            } else if (bestBreak >= dPos) {
+                wrapEnd = bestBreak + 1;
+                nextDPos = bestBreak + 1;
+            } else {
+                wrapEnd = (di > dPos) ? di : dPos + 1;
+                nextDPos = wrapEnd;
+            }
+
+            TextAreaLine& sl = _lines[_lineCount++];
+            sl.start = pos + dPos;
+            sl.length = wrapEnd - dPos;
+            sl.height = lineH;
+
+            dPos = nextDPos;
+        }
+
+        pos = lineEnd;
+        // Skip the newline character
+        if (pos < len && _text[pos] == '\n') pos++;
+    }
+
+    if (_lineCount == 0) {
+        _lines[0].start = 0;
+        _lines[0].length = 0;
+        _lines[0].height = lineH;
+        _lineCount = 1;
+    }
+
+    clampScroll();
+    _needsWrap = false;
+}
+
+// ── Determine cursor position from a touch coordinate ──
+int UITextArea::cursorFromTouch(M5GFX& gfx, int16_t tx, int16_t ty) {
+    if (_lineCount == 0) return 0;
+
+    int16_t innerX = _x + TAB5_PADDING;
+    int16_t innerY = _y + TAB5_PADDING;
+
+    gfx.setTextSize(_textSize);
+
+    // Find which line was tapped
+    int16_t curY = innerY - _scrollOffset;
+    int targetLine = _lineCount - 1;  // Default to last line
+
+    for (int i = 0; i < _lineCount; i++) {
+        if (ty >= curY && ty < curY + _lines[i].height) {
+            targetLine = i;
+            break;
+        }
+        curY += _lines[i].height;
+    }
+
+    // Now find character position within that line
+    const TextAreaLine& sl = _lines[targetLine];
+    if (sl.length == 0) return sl.start;
+
+    int16_t relX = tx - innerX;
+    if (relX <= 0) return sl.start;
+
+    char buf[257];
+    for (int c = 1; c <= sl.length; c++) {
+        int runLen = (c > 255) ? 255 : c;
+        memcpy(buf, _text + sl.start, runLen);
+        buf[runLen] = '\0';
+        int16_t tw = gfx.textWidth(buf);
+        if (tw >= relX) {
+            // Check if closer to this char or the previous
+            if (c > 1) {
+                memcpy(buf, _text + sl.start, c - 1);
+                buf[c - 1] = '\0';
+                int16_t prevW = gfx.textWidth(buf);
+                if (relX - prevW < tw - relX) {
+                    return sl.start + c - 1;
+                }
+            }
+            return sl.start + c;
+        }
+    }
+    return sl.start + sl.length;
+}
+
+void UITextArea::scrollToCursor() {
+    ensureCursorVisible();
+}
+
+// ── Make sure the cursor line is visible in the viewport ──
+void UITextArea::ensureCursorVisible() {
+    if (_lineCount == 0) return;
+
+    // Find which line the cursor is on
+    int cursorLine = 0;
+    for (int i = 0; i < _lineCount; i++) {
+        int lineEnd = _lines[i].start + _lines[i].length;
+        if (_cursorPos <= lineEnd) {
+            cursorLine = i;
+            break;
+        }
+        if (i == _lineCount - 1) cursorLine = i;
+    }
+
+    // Calculate the Y position of that line
+    int16_t lineTop = 0;
+    for (int i = 0; i < cursorLine; i++) {
+        lineTop += _lines[i].height;
+    }
+    int16_t lineBottom = lineTop + _lines[cursorLine].height;
+
+    int16_t innerH = _h - TAB5_PADDING * 2;
+
+    // Scroll if cursor line is above or below the visible area
+    if (lineTop < _scrollOffset) {
+        _scrollOffset = lineTop;
+    } else if (lineBottom > _scrollOffset + innerH) {
+        _scrollOffset = lineBottom - innerH;
+    }
+    clampScroll();
+}
+
+void UITextArea::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Reflow if needed
+    if (_needsWrap) {
+        reflow(gfx);
+        if (_focused) ensureCursorVisible();
+    }
+
+    // Resolve pending cursor-placement tap (requires gfx for text measurement)
+    if (_pendingTap) {
+        _pendingTap = false;
+        _cursorPos = cursorFromTouch(gfx, _pendingTapX, _pendingTapY);
+    }
+
+    // Background
+    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+
+    // Border (highlight when focused)
+    uint32_t bc = _focused ? rgb888(_focusBorderColor) : rgb888(_borderColor);
+    gfx.drawRect(_x, _y, _w, _h, bc);
+    if (_focused) {
+        gfx.drawRect(_x + 1, _y + 1, _w - 2, _h - 2, bc);  // 2px border
+    }
+
+    int16_t innerX = _x + TAB5_PADDING;
+    int16_t innerY = _y + TAB5_PADDING;
+    int16_t innerW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 2;
+    int16_t innerH = _h - TAB5_PADDING * 2;
+
+    // Clip to content area
+    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::top_left);
+
+    if (_text[0] == '\0' && !_focused) {
+        // Show placeholder
+        gfx.setTextColor(rgb888(_phColor));
+        gfx.drawString(_placeholder, innerX, innerY);
+    } else {
+        gfx.setTextColor(rgb888(_textColor));
+
+        // Find which display line the cursor is on
+        int cursorLine = -1;
+        int cursorCharInLine = -1;
+        if (_focused) {
+            for (int i = 0; i < _lineCount; i++) {
+                int lineEnd = _lines[i].start + _lines[i].length;
+                if (_cursorPos >= _lines[i].start && _cursorPos <= lineEnd) {
+                    cursorLine = i;
+                    cursorCharInLine = _cursorPos - _lines[i].start;
+                    break;
+                }
+            }
+            // If cursor is at end of text past all lines, put it at end of last line
+            if (cursorLine < 0 && _lineCount > 0) {
+                cursorLine = _lineCount - 1;
+                cursorCharInLine = _lines[cursorLine].length;
+            }
+        }
+
+        // Draw visible lines
+        int16_t curY = innerY - _scrollOffset;
+
+        for (int i = 0; i < _lineCount; i++) {
+            const TextAreaLine& sl = _lines[i];
+            int16_t lineY = curY;
+            curY += sl.height;
+
+            // Skip lines outside visible area
+            if (lineY + sl.height <= _y) continue;
+            if (lineY >= _y + _h) break;
+
+            if (sl.length > 0) {
+                char buf[257];
+                int drawLen = (sl.length > 255) ? 255 : sl.length;
+                memcpy(buf, _text + sl.start, drawLen);
+                buf[drawLen] = '\0';
+                gfx.setTextColor(rgb888(_textColor));
+                gfx.drawString(buf, innerX, lineY);
+            }
+
+            // Draw cursor on this line
+            if (_focused && i == cursorLine) {
+                int16_t cx;
+                if (cursorCharInLine > 0) {
+                    char buf[257];
+                    int cLen = (cursorCharInLine > 255) ? 255 : cursorCharInLine;
+                    memcpy(buf, _text + sl.start, cLen);
+                    buf[cLen] = '\0';
+                    cx = innerX + gfx.textWidth(buf);
+                } else {
+                    cx = innerX;
+                }
+                int16_t cy1 = lineY + 2;
+                int16_t cy2 = lineY + sl.height - 4;
+                gfx.drawFastVLine(cx, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+                gfx.drawFastVLine(cx + 1, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+            }
+        }
+    }
+
+    // Clear clip
+    gfx.clearClipRect();
+
+    // Scrollbar (only if content overflows)
+    int16_t contentH = totalContentHeight();
+    if (contentH > innerH) {
+        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbAreaH = _h - 2;
+
+        // Scrollbar track
+        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                     rgb888(darken(_bgColor, 60)));
+
+        // Scrollbar thumb
+        float visibleRatio = (float)innerH / (float)contentH;
+        int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+        if (thumbH < 20) thumbH = 20;
+
+        int16_t ms = maxScroll();
+        float scrollRatio = (ms > 0) ? (float)_scrollOffset / (float)ms : 0.0f;
+        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+                                 3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    _dirty = false;
+}
+
+void UITextArea::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true;
+    _dragging = false;
+    _wasDrag = false;
+    _touchStartY = ty;
+    _touchDownX = tx;
+    _touchDownY = ty;
+    _scrollStart = _scrollOffset;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UITextArea::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+
+    int16_t dy = _touchStartY - ty;
+
+    // Check if movement exceeds drag threshold
+    int16_t totalDy = ty - _touchDownY;
+    if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+        _wasDrag = true;
+    }
+
+    if (_wasDrag) {
+        _scrollOffset = _scrollStart + dy;
+        clampScroll();
+        _dirty = true;
+    }
+}
+
+void UITextArea::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+    _pressed = false;
+
+    if (!_wasDrag) {
+        // This was a tap, not a drag
+        if (!_focused) {
+            // First tap opens the keyboard
+            focus();
+        } else {
+            // Already focused — schedule cursor placement (needs gfx for measurement)
+            _pendingTap = true;
+            _pendingTapX = tx;
+            _pendingTapY = ty;
+            _dirty = true;
+        }
+    }
+
+    _dragging = false;
+    _wasDrag = false;
+    if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIManager
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -3657,6 +4177,7 @@ void UIManager::drawAll() {
 
 void UIManager::drawDirty() {
     _gfx.startWrite();
+    bool anyDrawn = false;
     for (auto* elem : _elements) {
         if (!elem->isVisible()) continue;
 
@@ -3666,15 +4187,32 @@ void UIManager::drawDirty() {
                 // Full redraw (page switch, tab bar change, etc.)
                 tv->draw(_gfx);
                 tv->setDirty(false);
+                anyDrawn = true;
             } else if (tv->hasActiveDirtyChild()) {
                 // Partial redraw — only dirty children, no background clear
                 tv->drawDirtyChildren(_gfx);
+                anyDrawn = true;
             }
         } else if (elem->isDirty()) {
             elem->draw(_gfx);
             elem->setDirty(false);
+            anyDrawn = true;
         }
     }
+
+    // If anything was redrawn and a modal overlay (keyboard, popup, menu) is
+    // visible, redraw it on top so it isn't covered by a widget that painted
+    // over its area (e.g. a UITextArea that extends beneath the keyboard).
+    if (anyDrawn) {
+        for (auto* elem : _elements) {
+            if (!elem->isVisible()) continue;
+            if (elem->isKeyboard() || elem->isPopup() || elem->isMenu()) {
+                elem->draw(_gfx);
+                elem->setDirty(false);
+            }
+        }
+    }
+
     _gfx.endWrite();
 }
 
@@ -3716,8 +4254,31 @@ void UIManager::update() {
 
             // If a modal overlay is open, it captures all touch
             if (modalElem) {
-                _touchedElem = modalElem;
-                modalElem->handleTouchDown(tx, ty);
+                // Keyboard special case: if the touch is outside the keyboard,
+                // fall through to normal hit-testing so the UITextArea (or other
+                // widgets) can still receive cursor-placement taps and scroll drags
+                // while the keyboard is open.
+                if (modalElem->isKeyboard() && !modalElem->hitTest(tx, ty)) {
+                    // Normal hit-testing (reverse for z-order), skip the keyboard
+                    for (int i = (int)_elements.size() - 1; i >= 0; --i) {
+                        UIElement* elem = _elements[i];
+                        if (!elem->isVisible() || !elem->isEnabled()) continue;
+                        if (elem->isKeyboard()) continue;  // Skip keyboard itself
+
+                        bool hit = elem->isCircleIcon()
+                                 ? static_cast<UIIconCircle*>(elem)->hitTestCircle(tx, ty)
+                                 : elem->hitTest(tx, ty);
+
+                        if (hit) {
+                            _touchedElem = elem;
+                            elem->handleTouchDown(tx, ty);
+                            break;
+                        }
+                    }
+                } else {
+                    _touchedElem = modalElem;
+                    modalElem->handleTouchDown(tx, ty);
+                }
             } else {
                 // Normal hit-testing (reverse for z-order)
                 for (int i = (int)_elements.size() - 1; i >= 0; --i) {

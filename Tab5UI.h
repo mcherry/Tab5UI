@@ -1422,6 +1422,132 @@ private:
     void     calcListGeometry();
 };
 
+/*******************************************************************************
+ * UITextArea — Multi-line text input with word wrapping
+ *
+ * A scrollable, editable multi-line text field with word-wrap, touch scrolling,
+ * and tap-to-place cursor.  Integrates with UIKeyboard the same way UITextInput
+ * does (call attachKeyboard()).
+ *
+ * Usage:
+ *   UIKeyboard keyboard;
+ *   UITextArea textArea(20, 60, 680, 400, "Enter notes...");
+ *   textArea.attachKeyboard(&keyboard);
+ *   textArea.setOnSubmit([](const char* text) { ... });
+ *   ui.addElement(&textArea);
+ *   ui.addElement(&keyboard);   // add last so it draws on top
+ ******************************************************************************/
+
+#define TAB5_TEXTAREA_MAX_LEN   1024     // Max text buffer size
+#define TAB5_TEXTAREA_MAX_LINES 128      // Max wrapped display lines
+
+struct TextAreaLine {
+    int16_t  start;       // Index into text buffer
+    int16_t  length;      // Character count for this display line
+    int16_t  height;      // Pixel height for this line
+};
+
+class UITextArea : public UIElement {
+public:
+    UITextArea(int16_t x, int16_t y, int16_t w, int16_t h,
+               const char* placeholder = "",
+               uint32_t bgColor     = Tab5Theme::BG_MEDIUM,
+               uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
+               uint32_t borderColor = Tab5Theme::BORDER);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // Attach a keyboard instance (required for typing)
+    void attachKeyboard(UIKeyboard* kb) { _keyboard = kb; }
+
+    // ── Text access ──
+    void setText(const char* text);
+    const char* getText() const { return _text; }
+    void clear();
+
+    // ── Placeholder ──
+    void setPlaceholder(const char* ph);
+
+    // ── Max character limit ──
+    void setMaxLength(int len) {
+        _maxLen = (len < TAB5_TEXTAREA_MAX_LEN) ? len : TAB5_TEXTAREA_MAX_LEN;
+    }
+
+    // ── Callbacks ──
+    void setOnSubmit(TextSubmitCallback cb) { _onSubmit = cb; }
+    void setOnChange(TextSubmitCallback cb) { _onChange = cb; }
+
+    // ── Focus state ──
+    bool isFocused() const { return _focused; }
+    void focus();    // Open keyboard
+    void blur();     // Close keyboard
+
+    // ── Scroll control ──
+    void scrollTo(int16_t offset);
+    void scrollToBottom();
+    void scrollToCursor();
+
+    // ── Appearance ──
+    void setTextSize(float s)          { _textSize = s; _needsWrap = true; _dirty = true; }
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+    void setFocusBorderColor(uint32_t c) { _focusBorderColor = c; }
+    void setPlaceholderColor(uint32_t c) { _phColor = c; _dirty = true; }
+
+private:
+    char     _text[TAB5_TEXTAREA_MAX_LEN];
+    char     _placeholder[64];
+    int      _cursorPos  = 0;
+    int      _maxLen     = TAB5_TEXTAREA_MAX_LEN - 1;
+    bool     _focused    = false;
+    float    _textSize   = TAB5_FONT_SIZE_MD;
+
+    uint32_t _bgColor;
+    uint32_t _textColor;
+    uint32_t _borderColor;
+    uint32_t _focusBorderColor = Tab5Theme::PRIMARY;
+    uint32_t _phColor          = Tab5Theme::TEXT_DISABLED;
+
+    UIKeyboard*        _keyboard  = nullptr;
+    TextSubmitCallback _onSubmit  = nullptr;
+    TextSubmitCallback _onChange  = nullptr;
+
+    // ── Word-wrap cache ──
+    bool         _needsWrap   = true;
+    int          _lineCount   = 0;
+    TextAreaLine _lines[TAB5_TEXTAREA_MAX_LINES];
+
+    // ── Scroll state ──
+    int16_t  _scrollOffset = 0;
+
+    // ── Touch-drag state ──
+    bool     _dragging     = false;
+    int16_t  _touchStartY  = 0;
+    int16_t  _scrollStart  = 0;
+    int16_t  _touchDownX   = 0;
+    int16_t  _touchDownY   = 0;
+    bool     _wasDrag      = false;
+    static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    // ── Pending cursor tap (resolved in draw with gfx) ──
+    bool     _pendingTap    = false;
+    int16_t  _pendingTapX   = 0;
+    int16_t  _pendingTapY   = 0;
+
+    // ── Internal helpers ──
+    int16_t  totalContentHeight() const;
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    void     reflow(M5GFX& gfx);
+    void     onKeyPress(char ch);
+    int      cursorFromTouch(M5GFX& gfx, int16_t tx, int16_t ty);
+    void     ensureCursorVisible();
+};
+
 /******************************************************************************* * UIManager — Manages all UI elements, handles drawing and touch dispatch
  *****************************************************************************/
 class UIManager {

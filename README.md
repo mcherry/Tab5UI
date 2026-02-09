@@ -15,7 +15,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIIconCircle** | Colored circle icon with circular hit-testing |
 | **UIMenu** | Modal popup menu with selectable items, separators, and auto-dismiss |
 | **UITextInput** | Single-line text input field with placeholder and focus highlight |
-| **UIKeyboard** | Full-screen modal QWERTY touch keyboard with Shift, Symbols, and Hide |
+| **UIKeyboard** | Full-screen modal QWERTY touch keyboard with Shift, Symbols, and Enter |
 | **UIList** | Scrollable list with touch-drag scrolling, item selection, and scrollbar |
 | **UITabView** | Multi-page tabbed container with configurable top/bottom tab bar |
 | **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
@@ -24,6 +24,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UICheckbox** | Toggleable checkbox with label, checked state, and touch callbacks |
 | **UIRadioButton** | Selectable radio button with label, managed by UIRadioGroup for mutual exclusion |
 | **UIDropdown** | Compact dropdown selector with scrollable list overlay, icons, and all UIList features |
+| **UITextArea** | Multi-line text input with word wrapping, touch scrolling, and tap-to-place cursor |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -352,8 +353,8 @@ void setTextColor(uint32_t c);
 | ⌫ (Backspace) | Delete last character |
 | 123 / ABC | Switch between letters and symbols |
 | Space | Space character |
-| Done | Fires enter (`'\n'`) and closes keyboard |
-| ↓ (Hide) | Closes keyboard without submitting |
+| Done | Fires submit callback and closes keyboard |
+| Ent (Enter) | Single-line: closes keyboard. Multi-line: inserts newline |
 
 **Behavior:** The keyboard is modal — when visible it captures all touch
 input.  It occupies the bottom 290px of the screen.  It is normally
@@ -385,7 +386,8 @@ void setPlaceholderColor(uint32_t c);
 **Behavior:** Tapping the input field opens the attached keyboard and
 highlights the border.  Characters are inserted at the cursor.  Pressing
 Done fires the `onSubmit` callback and closes the keyboard.  Pressing
-Hide (↓) closes the keyboard without firing `onSubmit`.
+Done fires the `onSubmit` callback and closes the keyboard.
+Enter closes the keyboard without firing `onSubmit`.
 
 ### UIList
 
@@ -743,6 +745,55 @@ Tapping an item selects it, fires the callback, and auto-closes the dropdown.
 Tapping outside the list dismisses it.  The dropdown participates in the
 modal overlay system, capturing all touch input while open.
 
+### UITextArea
+
+```cpp
+UITextArea(x, y, w, h, "placeholder", bgColor, textColor, borderColor);
+
+// Keyboard
+void attachKeyboard(UIKeyboard* kb);  // Required — connect a keyboard
+
+// Text access
+void setText(const char* text);
+const char* getText() const;
+void clear();
+
+// Placeholder shown when text is empty
+void setPlaceholder(const char* ph);
+void setMaxLength(int len);           // Default: 1024 chars
+
+// Focus state
+void focus();             // Open keyboard
+void blur();              // Close keyboard
+bool isFocused() const;
+
+// Callbacks
+void setOnSubmit(TextSubmitCallback cb);  // Done key pressed
+void setOnChange(TextSubmitCallback cb);  // Each character typed
+
+// Scroll control
+void scrollTo(int16_t offset);            // Pixel offset from top
+void scrollToBottom();
+void scrollToCursor();                    // Ensure cursor is visible
+
+// Appearance
+void setTextSize(float s);                // Font size (triggers reflow)
+void setBgColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setBorderColor(uint32_t c);
+void setFocusBorderColor(uint32_t c);
+void setPlaceholderColor(uint32_t c);
+```
+
+**Behavior:** The text area renders a bordered, scrollable multi-line text
+field.  Text is automatically word-wrapped to fit the widget width.  Tapping
+the widget opens the attached keyboard (same as `UITextInput`).  While focused,
+tapping within the text area places the cursor at the tapped position.
+Drag up/down to scroll through long text.  A scrollbar appears when content
+overflows.  Pressing Done fires `onSubmit` and closes the keyboard.  The
+widget supports mid-text insertion and deletion — the cursor position tracks
+correctly through edits.  Up to 1024 characters are supported.
+
 ### UIManager
 
 ```cpp
@@ -788,8 +839,10 @@ Tab5UI/
     │   └── Tab5UI_List_Demo.ino      # List widget demo (landscape)
     ├── Tab5UI_Tab_Demo/
     │   └── Tab5UI_Tab_Demo.ino       # Tab view demo (landscape)
-    └── Tab5UI_WiFi_Demo/
-        └── Tab5UI_WiFi_Demo.ino      # WiFi scanner demo (portrait)
+    ├── Tab5UI_WiFi_Demo/
+    │   └── Tab5UI_WiFi_Demo.ino      # WiFi scanner demo (portrait)
+    └── Tab5UI_TextArea_Demo/
+        └── Tab5UI_TextArea_Demo.ino   # Multi-line text input demo (portrait)
 ```
 
 ---
