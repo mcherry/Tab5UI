@@ -20,7 +20,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UITabView** | Multi-page tabbed container with configurable top/bottom tab bar |
 | **UIInfoPopup** | Auto-sized modal info popup with title, message, and OK button |
 | **UIConfirmPopup** | Auto-sized modal confirm popup with title, message, and Yes/No buttons |
-| **UIScrollText** | Read-only scrollable word-wrapped text display with touch-drag scrolling |
+| **UIScrollText** | Scrollable text display with basic Markdown rendering (headings, bold, italic, code, bullets, rules) |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -516,18 +516,43 @@ void setBgColor(uint32_t c);
 void setTextColor(uint32_t c);
 void setBorderColor(uint32_t c);
 
+// Markdown colors
+void setHeadingColor(uint32_t c);     // Heading text      (default: PRIMARY)
+void setBoldColor(uint32_t c);        // **bold** text      (default: ACCENT)
+void setItalicColor(uint32_t c);      // *italic* text      (default: TEXT_SECONDARY)
+void setCodeColor(uint32_t c);        // `code` text        (default: SECONDARY)
+void setCodeBgColor(uint32_t c);      // `code` background  (default: 0x0A0A1E)
+void setRuleColor(uint32_t c);        // Horizontal rules   (default: DIVIDER)
+void setBulletColor(uint32_t c);      // Bullet markers     (default: PRIMARY)
+
 // Scroll control
 void scrollTo(int16_t offset);        // Pixel offset from top
 void scrollToTop();
 void scrollToBottom();
 ```
 
-**Behavior:** Displays read-only text that is automatically word-wrapped to
-the widget width.  Explicit newlines (`\n`) in the text are honored.  When
-the wrapped text exceeds the visible area, a scrollbar appears on the right
-side and the content can be scrolled by touch-dragging up/down.  The drag
-threshold (8px) prevents accidental scrolls from taps.  Supports up to
-2048 characters and 128 wrapped lines.
+**Behavior:** Displays read-only text with basic **Markdown rendering**.
+Text is automatically word-wrapped to the widget width.  When the content
+exceeds the visible area, a scrollbar appears on the right and the content
+can be scrolled by touch-dragging up/down.
+
+**Supported Markdown syntax:**
+
+| Syntax | Rendering |
+|--------|-----------|
+| `# Heading` | Large heading (H1) with underline |
+| `## Heading` | Medium heading (H2) |
+| `### Heading` | Small heading (H3) |
+| `**bold**` | Bold text (accent color) |
+| `*italic*` | Italic text (secondary color) |
+| `` `code` `` | Inline code (green on dark background) |
+| `- item` or `* item` | Bullet list with • prefix |
+| `---` or `***` | Horizontal rule |
+
+Since the M5GFX environment has only one font loaded (DejaVu18), bold and
+italic styles are rendered as **color changes** rather than font-weight or
+font-style changes.  Headings use larger text sizes.  All markdown colors
+are individually customizable via setter methods.
 
 ### UIManager
 

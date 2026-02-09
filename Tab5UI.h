@@ -941,14 +941,24 @@ private:
 };
 
 /*******************************************************************************
- * UIScrollText — Read-only scrollable word-wrapped text display
+ * UIScrollText — Read-only scrollable word-wrapped text display with Markdown
  *
  * Usage:
  *   UIScrollText scrollText(20, 60, 600, 400);
- *   scrollText.setText("A long block of text that will be word-wrapped "
- *                      "to fit the width of the widget and scrollable "
- *                      "via touch-drag.");
+ *   scrollText.setText("# Heading\n\nSome **bold** and *italic* text.\n"
+ *                      "- Bullet one\n- Bullet two\n");
  *   ui.addElement(&scrollText);
+ *
+ * Supported Markdown:
+ *   # Heading 1        — large text in heading color
+ *   ## Heading 2       — medium-large text in heading color
+ *   ### Heading 3      — medium text in heading color
+ *   **bold text**      — rendered in bold color
+ *   *italic text*      — rendered in italic color
+ *   `inline code`      — rendered in code color
+ *   - bullet item      — indented with bullet character
+ *   * bullet item      — same as above
+ *   ---                — horizontal divider line
  *
  * The text is word-wrapped to the widget width and scrollable by
  * touch-dragging up/down.  A scrollbar appears when content overflows.
@@ -956,6 +966,18 @@ private:
  ******************************************************************************/
 #define TAB5_SCROLLTEXT_MAX_LEN   2048   // Max text buffer size
 #define TAB5_SCROLLTEXT_MAX_LINES 128    // Max wrapped lines
+
+// Per-line metadata for markdown rendering
+struct ScrollTextLine {
+    int16_t  start;       // Index into _text
+    int16_t  length;      // Character count (raw, including markers)
+    int16_t  height;      // Pixel height for this line
+    uint8_t  heading;     // 0=normal, 1=#, 2=##, 3=###
+    bool     bullet;      // Line starts with "- " or "* "
+    bool     rule;        // Horizontal rule (--- or ***)
+    int16_t  textStart;   // Offset past prefix (e.g., "# ", "- ")
+    int16_t  textLength;  // Length of display text (after stripping prefix)
+};
 
 class UIScrollText : public UIElement {
 public:
@@ -978,6 +1000,15 @@ public:
     void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
     void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
 
+    // ── Markdown colors ──
+    void setHeadingColor(uint32_t c)   { _headingColor = c; _dirty = true; }
+    void setBoldColor(uint32_t c)      { _boldColor = c; _dirty = true; }
+    void setItalicColor(uint32_t c)    { _italicColor = c; _dirty = true; }
+    void setCodeColor(uint32_t c)      { _codeColor = c; _dirty = true; }
+    void setCodeBgColor(uint32_t c)    { _codeBgColor = c; _dirty = true; }
+    void setRuleColor(uint32_t c)      { _ruleColor = c; _dirty = true; }
+    void setBulletColor(uint32_t c)    { _bulletColor = c; _dirty = true; }
+
     // ── Scroll control ──
     void scrollTo(int16_t offset);
     void scrollToTop()                 { scrollTo(0); }
@@ -991,12 +1022,19 @@ private:
     uint32_t _textColor;
     uint32_t _borderColor   = Tab5Theme::BORDER;
 
+    // Markdown colors
+    uint32_t _headingColor  = Tab5Theme::PRIMARY;
+    uint32_t _boldColor     = Tab5Theme::ACCENT;
+    uint32_t _italicColor   = Tab5Theme::TEXT_SECONDARY;
+    uint32_t _codeColor     = Tab5Theme::SECONDARY;
+    uint32_t _codeBgColor   = 0x0A0A1E;    // Darker than BG_DARK
+    uint32_t _ruleColor     = Tab5Theme::DIVIDER;
+    uint32_t _bulletColor   = Tab5Theme::PRIMARY;
+
     // Word-wrap cache
     bool     _needsWrap     = true;
     int      _lineCount     = 0;
-    int16_t  _lineStarts[TAB5_SCROLLTEXT_MAX_LINES];
-    int16_t  _lineLengths[TAB5_SCROLLTEXT_MAX_LINES];
-    int16_t  _lineH         = 0;    // Pixel height per line
+    ScrollTextLine _lines[TAB5_SCROLLTEXT_MAX_LINES];
 
     // Scroll state
     int16_t  _scrollOffset  = 0;
@@ -1009,15 +1047,18 @@ private:
     bool     _wasDrag       = false;
     static constexpr int16_t DRAG_THRESHOLD = 8;
 
-    int16_t  totalContentHeight() const { return _lineCount * _lineH; }
+    int16_t  totalContentHeight() const;
     int16_t  maxScroll() const;
     void     clampScroll();
     void     reflow(M5GFX& gfx);
 
-    // Word-wrap helper (same signature as UIInfoPopup)
-    static int wordWrap(M5GFX& gfx, const char* text, float textSize,
-                        int16_t maxWidth, int16_t* lineStarts,
-                        int16_t* lineLengths, int maxLines);
+    // Draw a single line with inline markdown spans (**bold**, *italic*, `code`)
+    void     drawMarkdownLine(M5GFX& gfx, const char* text, int len,
+                              int16_t x, int16_t y, float textSize,
+                              uint32_t defaultColor);
+    // Measure width of a markdown line (accounting for stripped markers)
+    int16_t  markdownTextWidth(M5GFX& gfx, const char* text, int len,
+                               float textSize);
 };
 
 /*******************************************************************************

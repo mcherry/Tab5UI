@@ -2053,7 +2053,7 @@ void UIConfirmPopup::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  UIScrollText
+//  UIScrollText  (with basic Markdown rendering)
 // ═════════════════════════════════════════════════════════════════════════════
 
 UIScrollText::UIScrollText(int16_t x, int16_t y, int16_t w, int16_t h,
@@ -2083,9 +2083,17 @@ void UIScrollText::scrollToBottom() {
     _dirty = true;
 }
 
+int16_t UIScrollText::totalContentHeight() const {
+    int16_t total = 0;
+    for (int i = 0; i < _lineCount; i++) {
+        total += _lines[i].height;
+    }
+    return total;
+}
+
 int16_t UIScrollText::maxScroll() const {
     int16_t contentH = totalContentHeight();
-    int16_t innerH = _h - TAB5_PADDING * 2;  // top + bottom padding
+    int16_t innerH = _h - TAB5_PADDING * 2;
     if (contentH <= innerH) return 0;
     return contentH - innerH;
 }
@@ -2096,79 +2104,325 @@ void UIScrollText::clampScroll() {
     if (_scrollOffset > ms) _scrollOffset = ms;
 }
 
+// ── Measure the display width of markdown text, ignoring marker characters ──
+int16_t UIScrollText::markdownTextWidth(M5GFX& gfx, const char* text, int len,
+                                        float textSize) {
+    gfx.setTextSize(textSize);
+    int16_t totalW = 0;
+    int i = 0;
+    char buf[257];
+
+    while (i < len) {
+        // Skip markdown markers — they don't contribute to visible width
+        // Check for ** (bold)
+        if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') {
+            i += 2;
+            continue;
+        }
+        // Check for * (italic) — but not ** which we already handled
+        if (text[i] == '*') {
+            i += 1;
+            continue;
+        }
+        // Check for ` (code)
+        if (text[i] == '`') {
+            i += 1;
+            continue;
+        }
+        // Regular character — measure it
+        int runStart = i;
+        while (i < len) {
+            if (text[i] == '*' || text[i] == '`') break;
+            i++;
+        }
+        int runLen = i - runStart;
+        if (runLen > 255) runLen = 255;
+        memcpy(buf, text + runStart, runLen);
+        buf[runLen] = '\0';
+        totalW += gfx.textWidth(buf);
+    }
+    return totalW;
+}
+
+// ── Reflow: parse markdown blocks and word-wrap each paragraph ──
 void UIScrollText::reflow(M5GFX& gfx) {
     int16_t contentW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 4;
-    _lineCount = wordWrap(gfx, _text, _textSize,
-                          contentW, _lineStarts, _lineLengths,
-                          TAB5_SCROLLTEXT_MAX_LINES);
+    _lineCount = 0;
+
+    // Compute line heights for each level
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    int16_t h1H = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_LG) + 10; // extra spacing
+    gfx.setTextSize((_textSize + TAB5_FONT_SIZE_LG) * 0.5f);
+    int16_t h2H = (int16_t)(gfx.fontHeight() * ((_textSize + TAB5_FONT_SIZE_LG) * 0.5f)) + 8;
+    gfx.setTextSize(_textSize * 1.1f);
+    int16_t h3H = (int16_t)(gfx.fontHeight() * (_textSize * 1.1f)) + 6;
     gfx.setTextSize(_textSize);
-    _lineH = (int16_t)(gfx.fontHeight() * _textSize) + 4;
+    int16_t normalH = (int16_t)(gfx.fontHeight() * _textSize) + 4;
+    int16_t ruleH   = normalH;  // Rule takes a full line height
+    int16_t bulletIndent = 28;  // Pixels to indent bullet text
+
+    int len = strlen(_text);
+    int pos = 0;
+
+    while (pos < len && _lineCount < TAB5_SCROLLTEXT_MAX_LINES) {
+        // Find end of this source line (up to \n)
+        int lineEnd = pos;
+        while (lineEnd < len && _text[lineEnd] != '\n') lineEnd++;
+
+        int srcLen = lineEnd - pos;
+        const char* linePtr = _text + pos;
+
+        // ── Detect block-level markdown ──
+        uint8_t heading = 0;
+        bool bullet = false;
+        bool rule = false;
+        int contentStart = 0;  // Offset into linePtr where display text begins
+
+        // Horizontal rule: "---", "***", "___" (3+ chars, optionally with spaces)
+        if (srcLen >= 3) {
+            bool isRule = true;
+            char rc = 0;
+            int ruleChars = 0;
+            for (int j = 0; j < srcLen; j++) {
+                if (linePtr[j] == ' ') continue;
+                if (rc == 0) rc = linePtr[j];
+                if (linePtr[j] == rc && (rc == '-' || rc == '*' || rc == '_')) {
+                    ruleChars++;
+                } else {
+                    isRule = false;
+                    break;
+                }
+            }
+            if (isRule && ruleChars >= 3) rule = true;
+        }
+
+        // Headings: #, ##, ###
+        if (!rule && srcLen >= 2 && linePtr[0] == '#') {
+            if (linePtr[1] == '#' && srcLen >= 3 && linePtr[2] == '#' && srcLen >= 4 && linePtr[3] == ' ') {
+                heading = 3; contentStart = 4;
+            } else if (linePtr[1] == '#' && srcLen >= 3 && linePtr[2] == ' ') {
+                heading = 2; contentStart = 3;
+            } else if (linePtr[1] == ' ') {
+                heading = 1; contentStart = 2;
+            }
+        }
+
+        // Bullet: "- " or "* " at start (only if not a rule)
+        if (!rule && !heading && srcLen >= 2) {
+            if ((linePtr[0] == '-' || linePtr[0] == '*') && linePtr[1] == ' ') {
+                bullet = true;
+                contentStart = 2;
+            }
+        }
+
+        // ── Empty line → blank spacer ──
+        if (srcLen == 0 && !rule) {
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = pos;
+            sl.length = 0;
+            sl.height = normalH / 2;  // Half-height blank
+            sl.heading = 0;
+            sl.bullet = false;
+            sl.rule = false;
+            sl.textStart = 0;
+            sl.textLength = 0;
+            _lineCount++;
+            pos = lineEnd + 1;
+            continue;
+        }
+
+        // ── Horizontal rule ──
+        if (rule) {
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = pos;
+            sl.length = srcLen;
+            sl.height = ruleH;
+            sl.heading = 0;
+            sl.bullet = false;
+            sl.rule = true;
+            sl.textStart = 0;
+            sl.textLength = 0;
+            _lineCount++;
+            pos = lineEnd + 1;
+            continue;
+        }
+
+        // ── Determine font size and available width for wrapping ──
+        float fontSize;
+        int16_t lineH;
+        if (heading == 1)      { fontSize = TAB5_FONT_SIZE_LG; lineH = h1H; }
+        else if (heading == 2) { fontSize = (_textSize + TAB5_FONT_SIZE_LG) * 0.5f; lineH = h2H; }
+        else if (heading == 3) { fontSize = _textSize * 1.1f; lineH = h3H; }
+        else                   { fontSize = _textSize; lineH = normalH; }
+
+        int16_t availW = contentW;
+        if (bullet) availW -= bulletIndent;
+
+        // ── Word-wrap this paragraph's display text ──
+        const char* dispText = linePtr + contentStart;
+        int dispLen = srcLen - contentStart;
+
+        gfx.setTextSize(fontSize);
+
+        // Walk through dispText, wrapping at word boundaries
+        int dPos = 0;
+        bool firstWrap = true;
+
+        while (dPos < dispLen && _lineCount < TAB5_SCROLLTEXT_MAX_LINES) {
+            int bestBreak = -1;
+            int di = dPos;
+            char buf[257];
+
+            while (di < dispLen) {
+                // Measure visible width (skipping markdown markers)
+                int runLen = di - dPos + 1;
+                if (runLen > 255) runLen = 255;
+                int16_t tw = markdownTextWidth(gfx, dispText + dPos, runLen, fontSize);
+                if (tw > availW && bestBreak >= 0) {
+                    break;
+                }
+                if (dispText[di] == ' ' || dispText[di] == '-') {
+                    bestBreak = di;
+                }
+                di++;
+            }
+
+            int wrapEnd, nextDPos;
+            if (di >= dispLen) {
+                wrapEnd = dispLen;
+                nextDPos = dispLen;
+            } else if (bestBreak >= dPos) {
+                wrapEnd = bestBreak + 1;
+                nextDPos = bestBreak + 1;
+            } else {
+                wrapEnd = (di > dPos) ? di : dPos + 1;
+                nextDPos = wrapEnd;
+            }
+
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = (dispText + dPos) - _text;  // Absolute offset into _text
+            sl.length = wrapEnd - dPos;
+            sl.height = lineH;
+            sl.heading = firstWrap ? heading : 0;  // Only first wrapped line gets heading style
+            sl.bullet = firstWrap ? bullet : false;
+            sl.rule = false;
+            sl.textStart = sl.start;
+            sl.textLength = sl.length;
+
+            _lineCount++;
+            dPos = nextDPos;
+            firstWrap = false;
+
+            // Continuation lines of bullets are also indented
+            // (heading is only on first line, but bullet indent continues)
+            if (bullet && !firstWrap) {
+                // Keep availW the same (still indented)
+            }
+        }
+
+        pos = lineEnd + 1;
+    }
+
+    if (_lineCount == 0) {
+        _lines[0].start = 0;
+        _lines[0].length = 0;
+        _lines[0].height = normalH;
+        _lines[0].heading = 0;
+        _lines[0].bullet = false;
+        _lines[0].rule = false;
+        _lines[0].textStart = 0;
+        _lines[0].textLength = 0;
+        _lineCount = 1;
+    }
+
     clampScroll();
     _needsWrap = false;
 }
 
-int UIScrollText::wordWrap(M5GFX& gfx, const char* text, float textSize,
-                           int16_t maxWidth, int16_t* lineStarts,
-                           int16_t* lineLengths, int maxLines)
-{
+// ── Draw a line with inline markdown spans ──
+void UIScrollText::drawMarkdownLine(M5GFX& gfx, const char* text, int len,
+                                    int16_t x, int16_t y, float textSize,
+                                    uint32_t defaultColor) {
     gfx.setTextSize(textSize);
-    int lines = 0;
-    int len   = strlen(text);
-    int pos   = 0;
+    gfx.setTextDatum(textdatum_t::top_left);
 
-    while (pos < len && lines < maxLines) {
-        int bestBreak = -1;
-        int i = pos;
-        char buf[257];
+    int16_t curX = x;
+    int i = 0;
+    char buf[257];
 
-        while (i < len) {
-            int runLen = i - pos + 1;
-            if (runLen > 255) runLen = 255;
-            memcpy(buf, text + pos, runLen);
-            buf[runLen] = '\0';
-            int16_t tw = gfx.textWidth(buf);
-            if (tw > maxWidth && bestBreak > pos) {
-                break;
+    while (i < len) {
+        // Check for ** (bold)
+        if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') {
+            i += 2;  // skip opening **
+            int spanStart = i;
+            while (i < len) {
+                if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') break;
+                i++;
             }
-            if (text[i] == ' ' || text[i] == '-') {
-                bestBreak = i;
-            }
-            if (text[i] == '\n') {
-                bestBreak = i;
-                break;
-            }
-            i++;
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextColor(rgb888(_boldColor));
+            gfx.setTextSize(textSize);
+            gfx.drawString(buf, curX, y);
+            curX += gfx.textWidth(buf);
+            if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') i += 2; // skip closing **
+            continue;
         }
 
-        int lineEnd;
-        int nextPos;
-        if (i >= len) {
-            lineEnd = len;
-            nextPos = len;
-        } else if (text[i] == '\n' || (bestBreak >= pos && text[bestBreak] == '\n')) {
-            int brk = (text[i] == '\n') ? i : bestBreak;
-            lineEnd = brk;
-            nextPos = brk + 1;
-        } else if (bestBreak > pos) {
-            lineEnd = bestBreak + 1;
-            nextPos = bestBreak + 1;
-        } else {
-            lineEnd = (i > pos) ? i : pos + 1;
-            nextPos = lineEnd;
+        // Check for ` (code)
+        if (text[i] == '`') {
+            i += 1;  // skip opening `
+            int spanStart = i;
+            while (i < len && text[i] != '`') i++;
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextSize(textSize);
+            int16_t codeW = gfx.textWidth(buf);
+            int16_t fh = (int16_t)(gfx.fontHeight() * textSize);
+            // Code background
+            gfx.fillRect(curX - 2, y, codeW + 4, fh, rgb888(_codeBgColor));
+            gfx.setTextColor(rgb888(_codeColor));
+            gfx.drawString(buf, curX, y);
+            curX += codeW;
+            if (i < len && text[i] == '`') i += 1; // skip closing `
+            continue;
         }
 
-        lineStarts[lines]  = pos;
-        lineLengths[lines] = lineEnd - pos;
-        lines++;
-        pos = nextPos;
-    }
+        // Check for * (italic) — single *, not **
+        if (text[i] == '*') {
+            i += 1;  // skip opening *
+            int spanStart = i;
+            while (i < len && text[i] != '*') i++;
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextColor(rgb888(_italicColor));
+            gfx.setTextSize(textSize);
+            gfx.drawString(buf, curX, y);
+            curX += gfx.textWidth(buf);
+            if (i < len && text[i] == '*') i += 1; // skip closing *
+            continue;
+        }
 
-    if (lines == 0) {
-        lineStarts[0]  = 0;
-        lineLengths[0] = 0;
-        lines = 1;
+        // Regular text run — up to next marker
+        int runStart = i;
+        while (i < len && text[i] != '*' && text[i] != '`') i++;
+        int runLen = i - runStart;
+        if (runLen > 255) runLen = 255;
+        memcpy(buf, text + runStart, runLen);
+        // Trim trailing spaces on last segment
+        while (runLen > 0 && buf[runLen - 1] == ' ' && i >= len) runLen--;
+        buf[runLen] = '\0';
+        gfx.setTextColor(rgb888(defaultColor));
+        gfx.setTextSize(textSize);
+        gfx.drawString(buf, curX, y);
+        curX += gfx.textWidth(buf);
     }
-    return lines;
 }
 
 void UIScrollText::draw(M5GFX& gfx) {
@@ -2194,25 +2448,72 @@ void UIScrollText::draw(M5GFX& gfx) {
     // Clip to content area
     gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
 
-    // Draw visible text lines
-    gfx.setTextSize(_textSize);
-    gfx.setTextDatum(textdatum_t::top_left);
-    gfx.setTextColor(rgb888(_textColor));
+    int16_t bulletIndent = 28;
 
-    char lineBuf[257];
+    // Accumulate Y position
+    int16_t curY = innerY - _scrollOffset;
+
     for (int i = 0; i < _lineCount; i++) {
-        int16_t lineY = innerY + (i * _lineH) - _scrollOffset;
+        const ScrollTextLine& sl = _lines[i];
+        int16_t lineY = curY;
+        curY += sl.height;
 
         // Skip lines outside visible area
-        if (lineY + _lineH <= _y || lineY >= _y + _h) continue;
+        if (lineY + sl.height <= _y) continue;
+        if (lineY >= _y + _h) break;
 
-        int len = _lineLengths[i];
-        if (len > 255) len = 255;
-        memcpy(lineBuf, _text + _lineStarts[i], len);
-        // Trim trailing spaces
-        while (len > 0 && lineBuf[len - 1] == ' ') len--;
-        lineBuf[len] = '\0';
-        gfx.drawString(lineBuf, innerX, lineY);
+        // ── Horizontal rule ──
+        if (sl.rule) {
+            int16_t ruleY = lineY + sl.height / 2;
+            gfx.drawFastHLine(innerX, ruleY, innerW, rgb888(_ruleColor));
+            continue;
+        }
+
+        // ── Empty line (spacer) ──
+        if (sl.textLength == 0) continue;
+
+        // Determine text properties
+        float fontSize;
+        uint32_t textColor;
+        int16_t drawX = innerX;
+
+        if (sl.heading == 1) {
+            fontSize = TAB5_FONT_SIZE_LG;
+            textColor = _headingColor;
+        } else if (sl.heading == 2) {
+            fontSize = (_textSize + TAB5_FONT_SIZE_LG) * 0.5f;
+            textColor = _headingColor;
+        } else if (sl.heading == 3) {
+            fontSize = _textSize * 1.1f;
+            textColor = _headingColor;
+        } else {
+            fontSize = _textSize;
+            textColor = _textColor;
+        }
+
+        // ── Bullet prefix ──
+        if (sl.bullet) {
+            gfx.setTextSize(_textSize);
+            gfx.setTextDatum(textdatum_t::top_left);
+            gfx.setTextColor(rgb888(_bulletColor));
+            gfx.drawString("\xe2\x80\xa2", innerX + 4, lineY);  // UTF-8 bullet "•"
+            drawX = innerX + bulletIndent;
+        }
+        // Continuation lines of bullets (not first) still get indent
+        // We detect this by checking if the previous line was a bullet
+        if (!sl.bullet && i > 0 && _lines[i - 1].bullet && sl.heading == 0) {
+            drawX = innerX + bulletIndent;
+        }
+
+        // ── Draw text with inline markdown ──
+        drawMarkdownLine(gfx, _text + sl.textStart, sl.textLength,
+                         drawX, lineY, fontSize, textColor);
+
+        // ── Heading underline for H1 ──
+        if (sl.heading == 1) {
+            int16_t ulY = lineY + sl.height - 4;
+            gfx.drawFastHLine(innerX, ulY, innerW, rgb888(_ruleColor));
+        }
     }
 
     // Clear clip

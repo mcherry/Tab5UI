@@ -125,32 +125,31 @@ UIScrollText scrollText(TAB5_PADDING, CY + TAB5_PADDING,
                          TAB5_SCREEN_W - TAB5_PADDING * 2,
                          TAB_H - TAB5_TAB_BAR_H - TAB5_PADDING * 2);
 
-// Sample text for the scrollable text display
+// Sample text for the scrollable text display (with Markdown)
 static const char SAMPLE_TEXT[] =
-    "Tab5UI Library Overview\n\n"
-    "Tab5UI is a lightweight, Arduino-compatible touchscreen UI widget library "
-    "built on M5GFX for the M5Stack Tab5's 5-inch 1280x720 IPS capacitive "
-    "touchscreen.\n\n"
+    "# Tab5UI Library Overview\n\n"
+    "**Tab5UI** is a lightweight, Arduino-compatible touchscreen UI widget "
+    "library built on `M5GFX` for the M5Stack Tab5's 5-inch *1280x720* IPS "
+    "capacitive touchscreen.\n\n"
     "The library provides a comprehensive set of interactive widgets including "
     "buttons, labels, text rows, icon squares, icon circles, popup menus, "
     "on-screen keyboards, text input fields, scrollable lists, tabbed views, "
     "info popups, confirm popups, and scrollable text displays.\n\n"
-    "All widgets support touch and touch-release event callbacks, making it "
-    "easy to build responsive user interfaces. The UIManager class handles "
-    "element registration, dirty-rectangle redraws, and touch event dispatch.\n\n"
-    "Key Features:\n"
-    "- 16 widget types covering common UI patterns\n"
-    "- Touch-drag scrolling for lists and text\n"
+    "---\n\n"
+    "## Key Features\n\n"
+    "- **16 widget types** covering common UI patterns\n"
+    "- Touch-drag scrolling for *lists* and *text*\n"
     "- Modal overlays for menus, keyboards, and popups\n"
-    "- Auto-sizing popups with word-wrapping\n"
+    "- Auto-sizing popups with `word-wrapping`\n"
     "- Tabbed views with top or bottom tab bar placement\n"
     "- Customizable colors and text sizes\n"
-    "- Efficient dirty-rectangle redraw system\n"
-    "- Designed for the 1280x720 resolution of the Tab5\n\n"
-    "This scrollable text widget demonstrates the UIScrollText class, which "
-    "displays read-only word-wrapped text that can be scrolled by dragging up "
-    "and down. A scrollbar appears on the right side when the content exceeds "
-    "the visible area. Try scrolling this text to see it in action!";
+    "- Efficient **dirty-rectangle** redraw system\n"
+    "- Designed for the *1280x720* resolution of the Tab5\n\n"
+    "---\n\n"
+    "### Markdown Support\n\n"
+    "This widget now renders basic Markdown: **bold**, *italic*, "
+    "`inline code`, headings, bullet lists, and horizontal rules. "
+    "Try scrolling to see it all!";
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  Helper: reposition elements when tab bar moves top <-> bottom
