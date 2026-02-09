@@ -2910,6 +2910,202 @@ void UIList::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UICheckbox
+// ═════════════════════════════════════════════════════════════════════════════
+
+UICheckbox::UICheckbox(int16_t x, int16_t y, int16_t w, int16_t h,
+                       const char* label, bool checked,
+                       uint32_t boxColor, uint32_t textColor, float textSize)
+    : UIElement(x, y, w, h)
+    , _checked(checked)
+    , _boxColor(boxColor)
+    , _textColor(textColor)
+    , _textSize(textSize)
+{
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+}
+
+void UICheckbox::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UICheckbox::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Vertical center of the element
+    int16_t cy = _y + _h / 2;
+    int16_t boxX = _x;
+    int16_t boxY = cy - BOX_SIZE / 2;
+
+    // Box background
+    uint32_t bgCol = _checked ? rgb888(_boxColor) : rgb888(darken(_borderColor, 20));
+    if (!_enabled) bgCol = rgb888(Tab5Theme::BORDER);
+    gfx.fillSmoothRoundRect(boxX, boxY, BOX_SIZE, BOX_SIZE, 4, bgCol);
+
+    // Box border
+    gfx.drawRoundRect(boxX, boxY, BOX_SIZE, BOX_SIZE, 4,
+                      _checked ? rgb888(_boxColor) : rgb888(_borderColor));
+
+    // Checkmark (two lines forming a ✓)
+    if (_checked) {
+        uint32_t chkCol = rgb888(_checkColor);
+        int16_t cx = boxX + BOX_SIZE / 2;
+        // Draw checkmark as two thick lines
+        // Short leg: bottom-left to bottom-center
+        for (int t = -1; t <= 1; t++) {
+            gfx.drawLine(boxX + 6, cy + t,       cx - 2, boxY + BOX_SIZE - 7 + t, chkCol);
+            gfx.drawLine(cx - 2, boxY + BOX_SIZE - 7 + t, boxX + BOX_SIZE - 6, boxY + 7 + t, chkCol);
+        }
+    }
+
+    // Label text
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::middle_left);
+    uint32_t tc = _enabled ? rgb888(_textColor) : rgb888(Tab5Theme::TEXT_DISABLED);
+    gfx.setTextColor(tc);
+    gfx.drawString(_label, boxX + BOX_SIZE + BOX_GAP, cy);
+
+    _dirty = false;
+}
+
+void UICheckbox::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true; _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UICheckbox::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        _checked = !_checked;  // Toggle on release
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIRadioGroup
+// ═════════════════════════════════════════════════════════════════════════════
+
+void UIRadioGroup::addButton(UIRadioButton* btn) {
+    if (_count < MAX_BUTTONS) {
+        _buttons[_count++] = btn;
+        btn->_group = this;
+        // Select the first button by default if none selected
+        if (_count == 1 && !_selected) {
+            _selected = btn;
+            btn->_selected = true;
+        }
+    }
+}
+
+void UIRadioGroup::select(UIRadioButton* btn) {
+    if (_selected == btn) return;
+    // Deselect previous
+    if (_selected) {
+        _selected->_selected = false;
+        _selected->_dirty = true;
+    }
+    _selected = btn;
+    if (btn) {
+        btn->_selected = true;
+        btn->_dirty = true;
+    }
+}
+
+int UIRadioGroup::getSelectedIndex() const {
+    for (int i = 0; i < _count; i++) {
+        if (_buttons[i] == _selected) return i;
+    }
+    return -1;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIRadioButton
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIRadioButton::UIRadioButton(int16_t x, int16_t y, int16_t w, int16_t h,
+                             const char* label, UIRadioGroup* group,
+                             uint32_t circleColor, uint32_t textColor,
+                             float textSize)
+    : UIElement(x, y, w, h)
+    , _circleColor(circleColor)
+    , _textColor(textColor)
+    , _textSize(textSize)
+    , _group(group)
+{
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    if (_group) _group->addButton(this);
+}
+
+void UIRadioButton::setLabel(const char* label) {
+    strncpy(_label, label, sizeof(_label) - 1);
+    _label[sizeof(_label) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIRadioButton::setGroup(UIRadioGroup* g) {
+    _group = g;
+    if (g) g->addButton(this);
+}
+
+void UIRadioButton::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    int16_t cy = _y + _h / 2;
+    int16_t cx = _x + CIRCLE_R;
+
+    // Outer circle
+    uint32_t ringCol = _selected ? rgb888(_circleColor) : rgb888(_borderColor);
+    if (!_enabled) ringCol = rgb888(Tab5Theme::BORDER);
+    gfx.drawCircle(cx, cy, CIRCLE_R, ringCol);
+    gfx.drawCircle(cx, cy, CIRCLE_R - 1, ringCol);
+
+    // Inner area — fill to clear previous state
+    uint32_t innerBg = rgb888(Tab5Theme::BG_MEDIUM);
+    gfx.fillCircle(cx, cy, CIRCLE_R - 3, innerBg);
+
+    // Filled dot when selected
+    if (_selected) {
+        uint32_t dotCol = rgb888(_dotColor);
+        gfx.fillCircle(cx, cy, CIRCLE_R - 5, dotCol);
+    }
+
+    // Label text
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::middle_left);
+    uint32_t tc = _enabled ? rgb888(_textColor) : rgb888(Tab5Theme::TEXT_DISABLED);
+    gfx.setTextColor(tc);
+    gfx.drawString(_label, _x + CIRCLE_R * 2 + CIRCLE_GAP, cy);
+
+    _dirty = false;
+}
+
+void UIRadioButton::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+    _pressed = true; _dirty = true;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIRadioButton::handleTouchUp(int16_t tx, int16_t ty) {
+    if (_pressed) {
+        _pressed = false;
+        // Select this radio button (group handles deselecting others)
+        if (_group) {
+            _group->select(this);
+        } else {
+            _selected = true;
+        }
+        _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIManager
 // ═════════════════════════════════════════════════════════════════════════════
 

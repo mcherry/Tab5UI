@@ -55,10 +55,6 @@ UIIconCircle iconCr2(TAB5_PADDING + 70,  450, 28, Tab5Theme::SECONDARY);
 UIIconCircle iconCr3(TAB5_PADDING + 140, 450, 28, Tab5Theme::ACCENT);
 UIIconCircle iconCr4(TAB5_PADDING + 210, 450, 28, Tab5Theme::DANGER);
 
-// Icon labels
-UILabel     iconLabel(TAB5_PADDING, 520, 400, TAB5_LABEL_H,
-                      "Tap icons above to change color");
-
 // Second column (right side of screen)
 UIButton    btnLarge(700, 60, 560, 56,
                      "Large Button", Tab5Theme::SURFACE);
@@ -68,7 +64,7 @@ UILabel     infoLabel(700, 130, 560, TAB5_LABEL_H,
 
 UITextRow   row4(700, 170, 560, "Display", "1280x720");
 UITextRow   row5(700, 210, 560, "Touch", "Capacitive");
-UITextRow   row6(700, 250, 560, "UI Elements", "11 types");
+UITextRow   row6(700, 250, 560, "UI Elements", "18 types");
 
 // Popup menu (triggered from title bar "< Menu" tap)
 UIMenu      mainMenu(TAB5_PADDING, TAB5_TITLE_H + 4, 280);
@@ -84,10 +80,20 @@ UIInfoPopup aboutPopup("About", "Tab5 UI Demo");
 
 // Confirm popup
 UIConfirmPopup confirmPopup("Confirm", "Are you sure you want\nto proceed with this action?");
-UIButton    btnConfirm(TAB5_PADDING, 560, 280, TAB5_BTN_H,
+UIButton    btnConfirm(TAB5_PADDING, 600, 280, TAB5_BTN_H,
                        "Confirm Action", Tab5Theme::ACCENT);
-UILabel     confirmResult(300, 560, 370, TAB5_LABEL_H,
+UILabel     confirmResult(300, 600, 370, TAB5_LABEL_H,
                           "Result: (waiting)");
+
+// Checkboxes
+UICheckbox  chk1(TAB5_PADDING, 510, 280, 40, "Enable WiFi", true);
+UICheckbox  chk2(TAB5_PADDING, 550, 280, 40, "Notifications");
+
+// Radio buttons
+UIRadioGroup radioGroup;
+UIRadioButton radio1(300, 510, 260, 40, "Option A", &radioGroup);
+UIRadioButton radio2(300, 550, 260, 40, "Option B", &radioGroup);
+UIRadioButton radio3(560, 510, 260, 40, "Option C", &radioGroup);
 
 // ── State ───────────────────────────────────────────────────────────────────
 int pressCount = 0;
@@ -258,9 +264,6 @@ void setup() {
     infoLabel.setTextSize(TAB5_FONT_SIZE_SM);
     infoLabel.setAlign(textdatum_t::middle_left);
 
-    iconLabel.setTextColor(Tab5Theme::TEXT_SECONDARY);
-    iconLabel.setTextSize(TAB5_FONT_SIZE_SM);
-
     // ── Configure Confirm Popup ──
     confirmResult.setTextColor(Tab5Theme::ACCENT);
     confirmResult.setTextSize(TAB5_FONT_SIZE_SM);
@@ -278,6 +281,25 @@ void setup() {
             confirmResult.setText("Result: No");
             statusBar.setText("Confirmed: No");
         }
+    });
+
+    // ── Configure Checkboxes ──
+    chk1.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText(chk1.isChecked() ? "WiFi enabled" : "WiFi disabled");
+    });
+    chk2.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText(chk2.isChecked() ? "Notifications on" : "Notifications off");
+    });
+
+    // ── Configure Radio Buttons ──
+    radio1.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Selected: Option A");
+    });
+    radio2.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Selected: Option B");
+    });
+    radio3.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Selected: Option C");
     });
 
     row6.setShowDivider(false);
@@ -308,7 +330,11 @@ void setup() {
     ui.addElement(&iconCr2);
     ui.addElement(&iconCr3);
     ui.addElement(&iconCr4);
-    ui.addElement(&iconLabel);
+    ui.addElement(&chk1);
+    ui.addElement(&chk2);
+    ui.addElement(&radio1);
+    ui.addElement(&radio2);
+    ui.addElement(&radio3);
     ui.addElement(&btnConfirm);
     ui.addElement(&confirmResult);
     ui.addElement(&btnLarge);

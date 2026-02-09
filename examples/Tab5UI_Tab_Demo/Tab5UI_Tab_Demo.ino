@@ -78,7 +78,7 @@ UILabel  infoLabel(700, CY + 80, 540, TAB5_LABEL_H,
 
 UITextRow rowDisplay(700, CY + 120, 540, "Display", "1280x720");
 UITextRow rowTouch(700, CY + 160, 540, "Touch", "Capacitive");
-UITextRow rowWidgets(700, CY + 200, 540, "Widgets", "16 types");
+UITextRow rowWidgets(700, CY + 200, 540, "Widgets", "18 types");
 
 // Text input + keyboard (right column, below text rows)
 UITextInput textInput(700, CY + 250, 540, "Type something...");
@@ -88,11 +88,22 @@ UIKeyboard  keyboard;
 
 UIInfoPopup popup("Info", "Button pressed!");
 
+// Checkboxes (left column, below icons)
+UICheckbox  chk1(TAB5_PADDING, CY + 330, 300, 40, "Enable WiFi", true);
+UICheckbox  chk2(TAB5_PADDING, CY + 370, 300, 40, "Dark Mode");
+UICheckbox  chk3(TAB5_PADDING, CY + 410, 300, 40, "Notifications");
+
+// Radio buttons (left column, below checkboxes)
+UIRadioGroup radioGroup;
+UIRadioButton radio1(TAB5_PADDING + 320, CY + 330, 300, 40, "Profile A", &radioGroup);
+UIRadioButton radio2(TAB5_PADDING + 320, CY + 370, 300, 40, "Profile B", &radioGroup);
+UIRadioButton radio3(TAB5_PADDING + 320, CY + 410, 300, 40, "Profile C", &radioGroup);
+
 // Confirm popup (triggered from Confirm button)
 UIConfirmPopup confirmPopup("Confirm", "Are you sure you want\nto proceed?");
-UIButton    btnConfirm(TAB5_PADDING, CY + 330, 300, TAB5_BTN_H,
+UIButton    btnConfirm(TAB5_PADDING, CY + 470, 300, TAB5_BTN_H,
                        "Confirm Action", Tab5Theme::ACCENT);
-UILabel     confirmResult(TAB5_PADDING + 320, CY + 330, 310, TAB5_LABEL_H,
+UILabel     confirmResult(TAB5_PADDING + 320, CY + 470, 310, TAB5_LABEL_H,
                           "Result: (waiting)", Tab5Theme::ACCENT, TAB5_FONT_SIZE_SM);
 
 // Counter for button presses
@@ -177,8 +188,14 @@ void repositionElements() {
     rowWidgets.setPosition(700, cy + 200);
     textInput.setPosition(700, cy + 250);
     inputResult.setPosition(700, cy + 310);
-    btnConfirm.setPosition(TAB5_PADDING, cy + 330);
-    confirmResult.setPosition(TAB5_PADDING + 320, cy + 330);
+    chk1.setPosition(TAB5_PADDING, cy + 330);
+    chk2.setPosition(TAB5_PADDING, cy + 370);
+    chk3.setPosition(TAB5_PADDING, cy + 410);
+    radio1.setPosition(TAB5_PADDING + 320, cy + 330);
+    radio2.setPosition(TAB5_PADDING + 320, cy + 370);
+    radio3.setPosition(TAB5_PADDING + 320, cy + 410);
+    btnConfirm.setPosition(TAB5_PADDING, cy + 470);
+    confirmResult.setPosition(TAB5_PADDING + 320, cy + 470);
 
     // Tab 2 elements
     int16_t listH = tabs.contentH() - TAB5_PADDING * 2;
@@ -274,6 +291,28 @@ void setup() {
         }
     });
 
+    // ── Checkboxes ──
+    chk1.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText(chk1.isChecked() ? "WiFi enabled" : "WiFi disabled");
+    });
+    chk2.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText(chk2.isChecked() ? "Dark Mode on" : "Dark Mode off");
+    });
+    chk3.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText(chk3.isChecked() ? "Notifications on" : "Notifications off");
+    });
+
+    // ── Radio Buttons ──
+    radio1.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Profile A selected");
+    });
+    radio2.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Profile B selected");
+    });
+    radio3.setOnTouchRelease([](TouchEvent e) {
+        statusBar.setText("Profile C selected");
+    });
+
     // Tab position toggle button
     btnTabPos.setBorderColor(Tab5Theme::PRIMARY);
     btnTabPos.setOnTouchRelease([](TouchEvent e) {
@@ -312,6 +351,12 @@ void setup() {
     tabs.addChild(page0, &rowWidgets);
     tabs.addChild(page0, &textInput);
     tabs.addChild(page0, &inputResult);
+    tabs.addChild(page0, &chk1);
+    tabs.addChild(page0, &chk2);
+    tabs.addChild(page0, &chk3);
+    tabs.addChild(page0, &radio1);
+    tabs.addChild(page0, &radio2);
+    tabs.addChild(page0, &radio3);
     tabs.addChild(page0, &btnConfirm);
     tabs.addChild(page0, &confirmResult);
 

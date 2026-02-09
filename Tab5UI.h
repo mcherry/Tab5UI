@@ -1185,6 +1185,129 @@ private:
     int      itemAtY(int16_t ty) const;
 };
 
+/*******************************************************************************
+ * UICheckbox — Toggleable checkbox with label
+ ******************************************************************************/
+class UICheckbox : public UIElement {
+public:
+    UICheckbox(int16_t x, int16_t y, int16_t w, int16_t h,
+               const char* label = "",
+               bool checked = false,
+               uint32_t boxColor   = Tab5Theme::PRIMARY,
+               uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
+               float textSize      = TAB5_FONT_SIZE_MD);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // State
+    void setChecked(bool c)    { _checked = c; _dirty = true; }
+    bool isChecked() const     { return _checked; }
+
+    // Label
+    void setLabel(const char* label);
+    const char* getLabel() const { return _label; }
+
+    // Appearance
+    void setBoxColor(uint32_t c)     { _boxColor = c; _dirty = true; }
+    uint32_t getBoxColor() const     { return _boxColor; }
+    void setCheckColor(uint32_t c)   { _checkColor = c; _dirty = true; }
+    uint32_t getCheckColor() const   { return _checkColor; }
+    void setTextColor(uint32_t c)    { _textColor = c; _dirty = true; }
+    uint32_t getTextColor() const    { return _textColor; }
+    void setTextSize(float s)        { _textSize = s; _dirty = true; }
+    float getTextSize() const        { return _textSize; }
+    void setBorderColor(uint32_t c)  { _borderColor = c; _dirty = true; }
+
+private:
+    char     _label[64];
+    bool     _checked;
+    uint32_t _boxColor;
+    uint32_t _checkColor  = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _textColor;
+    uint32_t _borderColor = Tab5Theme::BORDER;
+    float    _textSize;
+    static constexpr int16_t BOX_SIZE = 28;
+    static constexpr int16_t BOX_GAP  = 12;
+};
+
+/*******************************************************************************
+ * UIRadioGroup — Manages mutual exclusion among UIRadioButton instances
+ ******************************************************************************/
+class UIRadioButton;   // Forward declaration
+
+class UIRadioGroup {
+public:
+    UIRadioGroup() = default;
+
+    void addButton(UIRadioButton* btn);
+    void select(UIRadioButton* btn);
+    int  getSelectedIndex() const;
+    UIRadioButton* getSelected() const { return _selected; }
+
+private:
+    static constexpr int MAX_BUTTONS = 12;
+    UIRadioButton* _buttons[MAX_BUTTONS] = {};
+    int            _count    = 0;
+    UIRadioButton* _selected = nullptr;
+};
+
+/*******************************************************************************
+ * UIRadioButton — Selectable radio button with label, managed by UIRadioGroup
+ ******************************************************************************/
+class UIRadioButton : public UIElement {
+public:
+    UIRadioButton(int16_t x, int16_t y, int16_t w, int16_t h,
+                  const char* label = "",
+                  UIRadioGroup* group = nullptr,
+                  uint32_t circleColor = Tab5Theme::PRIMARY,
+                  uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
+                  float textSize       = TAB5_FONT_SIZE_MD);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // State
+    void setSelected(bool s)    { _selected = s; _dirty = true; }
+    bool isSelected() const     { return _selected; }
+
+    // Group
+    void setGroup(UIRadioGroup* g);
+    UIRadioGroup* getGroup() const { return _group; }
+
+    // Label
+    void setLabel(const char* label);
+    const char* getLabel() const { return _label; }
+
+    // Appearance
+    void setCircleColor(uint32_t c)    { _circleColor = c; _dirty = true; }
+    uint32_t getCircleColor() const    { return _circleColor; }
+    void setDotColor(uint32_t c)       { _dotColor = c; _dirty = true; }
+    uint32_t getDotColor() const       { return _dotColor; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    uint32_t getTextColor() const      { return _textColor; }
+    void setTextSize(float s)          { _textSize = s; _dirty = true; }
+    float getTextSize() const          { return _textSize; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+
+private:
+    char     _label[64];
+    bool     _selected = false;
+    uint32_t _circleColor;
+    uint32_t _dotColor    = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _textColor;
+    uint32_t _borderColor = Tab5Theme::BORDER;
+    float    _textSize;
+    UIRadioGroup* _group  = nullptr;
+
+    static constexpr int16_t CIRCLE_R  = 14;
+    static constexpr int16_t CIRCLE_GAP = 12;
+
+    friend class UIRadioGroup;
+};
+
 /******************************************************************************* * UIManager — Manages all UI elements, handles drawing and touch dispatch
  *****************************************************************************/
 class UIManager {
