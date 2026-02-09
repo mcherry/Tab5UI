@@ -1308,6 +1308,111 @@ private:
     friend class UIRadioGroup;
 };
 
+/*******************************************************************************
+ * UIDropdown — Compact dropdown selector with scrollable list overlay
+ *
+ * Collapsed: shows selected text (or placeholder) with ▼ arrow.
+ * Expanded:  opens a scrollable list overlay with all UIList features
+ *            (icons, scrollbar, selection, drag-scroll).
+ * Participates in the modal overlay system via isMenu().
+ ******************************************************************************/
+class UIDropdown : public UIElement {
+public:
+    UIDropdown(int16_t x, int16_t y, int16_t w, int16_t h = TAB5_BTN_H,
+               const char* placeholder = "Select...",
+               uint32_t bgColor     = Tab5Theme::SURFACE,
+               uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
+               uint32_t selectColor = Tab5Theme::PRIMARY);
+
+    void draw(M5GFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // Type identification — acts as modal overlay when open
+    bool isMenu() const override { return _open; }
+
+    // ── Item management (mirrors UIList) ──
+    int  addItem(const char* text);
+    int  addItem(const char* text, const char* iconChar,
+                 uint32_t iconColor = Tab5Theme::PRIMARY,
+                 bool circle = false,
+                 uint32_t iconBorderColor = Tab5Theme::BORDER,
+                 uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
+    void removeItem(int index);
+    void clearItems();
+    void setItemText(int index, const char* text);
+    void setItemEnabled(int index, bool enabled);
+    int  itemCount() const { return _itemCount; }
+
+    // ── Item icons ──
+    void setItemIcon(int index, const char* iconChar,
+                     uint32_t iconColor = Tab5Theme::PRIMARY,
+                     bool circle = false,
+                     uint32_t iconBorderColor = Tab5Theme::BORDER,
+                     uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
+    void clearItemIcon(int index);
+
+    // ── Selection ──
+    int  getSelectedIndex() const { return _selectedIndex; }
+    const char* getSelectedText() const;
+    void setSelectedIndex(int index);
+    void clearSelection();
+
+    // ── Callbacks ──
+    void setOnSelect(ListSelectCallback cb) { _onSelect = cb; }
+
+    // ── Open / Close ──
+    void open();
+    void close();
+    bool isOpen() const { return _open; }
+
+    // ── Appearance ──
+    void setPlaceholder(const char* text);
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setSelectColor(uint32_t c)    { _selectColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+    void setTextSize(float s)          { _textSize = s; _dirty = true; }
+    void setMaxVisibleItems(int n)     { _maxVisible = n; _dirty = true; }
+
+private:
+    UIListItem _items[TAB5_LIST_MAX_ITEMS];
+    int        _itemCount      = 0;
+    int        _selectedIndex  = -1;
+    bool       _open           = false;
+    char       _placeholder[64];
+
+    // Dropdown list geometry (calculated when opened)
+    int16_t    _listX, _listY, _listW, _listH;
+    int16_t    _itemH          = TAB5_LIST_ITEM_H;
+    int16_t    _scrollOffset   = 0;
+    int        _maxVisible     = 6;      // Max items visible in dropdown
+    float      _textSize       = TAB5_FONT_SIZE_MD;
+
+    uint32_t   _bgColor;
+    uint32_t   _textColor;
+    uint32_t   _selectColor;
+    uint32_t   _borderColor    = Tab5Theme::BORDER;
+
+    ListSelectCallback _onSelect = nullptr;
+
+    // Touch-scroll state (same as UIList)
+    bool     _dragging      = false;
+    int16_t  _touchStartY   = 0;
+    int16_t  _scrollStart   = 0;
+    int16_t  _touchDownY    = 0;
+    bool     _wasDrag       = false;
+    bool     _btnPressed    = false;   // Collapsed button press state
+    static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    int16_t  totalContentHeight() const { return _itemCount * _itemH; }
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    int      itemAtY(int16_t ty) const;
+    void     calcListGeometry();
+};
+
 /******************************************************************************* * UIManager — Manages all UI elements, handles drawing and touch dispatch
  *****************************************************************************/
 class UIManager {

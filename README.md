@@ -23,6 +23,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIScrollText** | Scrollable text display with basic Markdown rendering (headings, bold, italic, code, bullets, rules) |
 | **UICheckbox** | Toggleable checkbox with label, checked state, and touch callbacks |
 | **UIRadioButton** | Selectable radio button with label, managed by UIRadioGroup for mutual exclusion |
+| **UIDropdown** | Compact dropdown selector with scrollable list overlay, icons, and all UIList features |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
 ### Touch Handling
@@ -631,6 +632,63 @@ text label.  When a `UIRadioGroup` is provided (via constructor or
 selected button in the group.  The first button added to a group is selected
 by default.  The group supports up to 12 buttons.  Pass the group pointer in
 the constructor to auto-register, or call `group.addButton()` manually.
+
+### UIDropdown
+
+```cpp
+UIDropdown(x, y, w, h, "placeholder", bgColor, textColor, selectColor);
+
+// Item management (identical to UIList)
+int  addItem(const char* text);
+int  addItem(const char* text, const char* iconChar,
+             uint32_t iconColor = Tab5Theme::PRIMARY,
+             bool circle = false,
+             uint32_t iconBorderColor = Tab5Theme::BORDER,
+             uint32_t iconCharColor = Tab5Theme::TEXT_PRIMARY);
+void removeItem(int index);
+void clearItems();
+void setItemText(int index, const char* text);
+void setItemEnabled(int index, bool enabled);
+int  itemCount() const;
+
+// Item icons
+void setItemIcon(int index, const char* iconChar,
+                 uint32_t iconColor, bool circle,
+                 uint32_t iconBorderColor, uint32_t iconCharColor);
+void clearItemIcon(int index);
+
+// Selection
+int  getSelectedIndex() const;        // -1 if none
+const char* getSelectedText() const;  // "" if none
+void setSelectedIndex(int index);
+void clearSelection();
+
+// Open / Close
+void open();
+void close();
+bool isOpen() const;
+
+// Callbacks
+void setOnSelect(ListSelectCallback cb);
+
+// Appearance
+void setPlaceholder(const char* text);
+void setBgColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setSelectColor(uint32_t c);
+void setBorderColor(uint32_t c);
+void setTextSize(float s);
+void setMaxVisibleItems(int n);       // Max items shown when open (default 6)
+```
+
+**Behavior:** The dropdown appears as a compact button showing the selected
+item's text (or a placeholder when nothing is selected) with a ▼ indicator.
+Tapping opens a scrollable list overlay directly below (or above if near the
+screen bottom).  The overlay supports drag-scrolling with scrollbar, item
+icons (square or circle), and selection highlighting — identical to UIList.
+Tapping an item selects it, fires the callback, and auto-closes the dropdown.
+Tapping outside the list dismisses it.  The dropdown participates in the
+modal overlay system, capturing all touch input while open.
 
 ### UIManager
 

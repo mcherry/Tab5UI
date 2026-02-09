@@ -126,6 +126,11 @@ UIButton btnShowSel(640, CY + TAB5_PADDING + 50, 280, TAB5_BTN_H,
 UIButton btnClearSel(940, CY + TAB5_PADDING + 50, 280, TAB5_BTN_H,
                      "Clear Selection", Tab5Theme::DANGER);
 
+UILabel dropLabel(640, CY + TAB5_PADDING + 120, 620, TAB5_LABEL_H,
+                  "Dropdown:");
+UIDropdown dropdown(640, CY + TAB5_PADDING + 155, 580, TAB5_BTN_H,
+                    "Choose a category...");
+
 UIInfoPopup listPopup("Selection", "No item selected");
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -204,6 +209,8 @@ void repositionElements() {
     listSelLabel.setPosition(640, cy + TAB5_PADDING);
     btnShowSel.setPosition(640, cy + TAB5_PADDING + 50);
     btnClearSel.setPosition(940, cy + TAB5_PADDING + 50);
+    dropLabel.setPosition(640, cy + TAB5_PADDING + 120);
+    dropdown.setPosition(640, cy + TAB5_PADDING + 155);
 
     // Tab 3 elements
     scrollText.setPosition(TAB5_PADDING, cy + TAB5_PADDING);
@@ -416,11 +423,35 @@ void setup() {
     listSelLabel.setTextColor(Tab5Theme::ACCENT);
     listSelLabel.setTextSize(TAB5_FONT_SIZE_MD);
 
+    // Dropdown list
+    dropdown.addItem("General",     "G", Tab5Theme::PRIMARY);
+    dropdown.addItem("Work",        "W", Tab5Theme::SECONDARY);
+    dropdown.addItem("Personal",    "P", Tab5Theme::ACCENT);
+    dropdown.addItem("Finance",     "F", Tab5Theme::DANGER);
+    dropdown.addItem("Health",      "H", Tab5Theme::SECONDARY, true);
+    dropdown.addItem("Travel",      "T", Tab5Theme::PRIMARY,   true);
+    dropdown.addItem("Education",   "E", Tab5Theme::ACCENT,    true);
+    dropdown.addItem("Shopping");
+    dropdown.addItem("Entertainment");
+    dropdown.addItem("Social");
+    dropdown.setTextSize(TAB5_FONT_SIZE_MD);
+
+    dropdown.setOnSelect([](int index, const char* text) {
+        char buf[80];
+        snprintf(buf, sizeof(buf), "Dropdown: %s", text);
+        statusBar.setText(buf);
+    });
+
+    dropLabel.setTextColor(Tab5Theme::TEXT_SECONDARY);
+    dropLabel.setTextSize(TAB5_FONT_SIZE_MD);
+
     // Add children to page 1
     tabs.addChild(page1, &dataList);
     tabs.addChild(page1, &listSelLabel);
     tabs.addChild(page1, &btnShowSel);
     tabs.addChild(page1, &btnClearSel);
+    tabs.addChild(page1, &dropLabel);
+    tabs.addChild(page1, &dropdown);
 
     // ── Page 2: Scrollable Text ─────────────────────────────────────────────
     scrollText.setText(SAMPLE_TEXT);

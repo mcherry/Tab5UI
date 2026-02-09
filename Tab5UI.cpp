@@ -1360,6 +1360,21 @@ void UITabView::handleTouchDown(int16_t tx, int16_t ty) {
     _pressed = true;
     _touchedChild = nullptr;
 
+    // Check if any child on the active page is a modal overlay (menu/popup)
+    // If so, route ALL touch to it exclusively (same pattern as UIManager)
+    if (_activePage >= 0 && _activePage < _pageCount) {
+        UITabPage& page = _pages[_activePage];
+        for (int i = page.childCount - 1; i >= 0; --i) {
+            UIElement* child = page.children[i];
+            if (!child || !child->isVisible()) continue;
+            if (child->isMenu() || child->isPopup()) {
+                _touchedChild = child;
+                child->handleTouchDown(tx, ty);
+                return;
+            }
+        }
+    }
+
     // Check if touch is on the tab bar
     if (hitTestTabBar(tx, ty)) {
         int idx = tabIndexAt(tx, ty);
@@ -1403,8 +1418,15 @@ void UITabView::handleTouchMove(int16_t tx, int16_t ty) {
 
 void UITabView::handleTouchUp(int16_t tx, int16_t ty) {
     if (_touchedChild) {
+        // Check if the child was a modal overlay before the touch-up
+        bool wasModal = (_touchedChild->isMenu() || _touchedChild->isPopup())
+                      && _touchedChild->isVisible();
         _touchedChild->handleTouchUp(tx, ty);
         if (_touchedChild->isDirty()) _dirty = true;
+        // If a modal overlay just closed, force full redraw to clean up
+        if (wasModal && !_touchedChild->isMenu() && !_touchedChild->isPopup()) {
+            _dirty = true;
+        }
         _touchedChild = nullptr;
     }
     _pressed = false;
@@ -3101,6 +3123,465 @@ void UIRadioButton::handleTouchUp(int16_t tx, int16_t ty) {
             _selected = true;
         }
         _dirty = true;
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  UIDropdown
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIDropdown::UIDropdown(int16_t x, int16_t y, int16_t w, int16_t h,
+                       const char* placeholder,
+                       uint32_t bgColor, uint32_t textColor, uint32_t selectColor)
+    : UIElement(x, y, w, h)
+    , _listX(x), _listY(y + h), _listW(w), _listH(0)
+    , _bgColor(bgColor), _textColor(textColor), _selectColor(selectColor)
+{
+    strncpy(_placeholder, placeholder, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+}
+
+// ── Item management ─────────────────────────────────────────────────────────
+
+int UIDropdown::addItem(const char* text) {
+    if (_itemCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    _items[_itemCount] = UIListItem();
+    strncpy(_items[_itemCount].text, text, sizeof(_items[0].text) - 1);
+    _items[_itemCount].text[sizeof(_items[0].text) - 1] = '\0';
+    _dirty = true;
+    return _itemCount++;
+}
+
+int UIDropdown::addItem(const char* text, const char* iconChar,
+                        uint32_t iconColor, bool circle,
+                        uint32_t iconBorderColor, uint32_t iconCharColor) {
+    if (_itemCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    _items[_itemCount] = UIListItem();
+    strncpy(_items[_itemCount].text, text, sizeof(_items[0].text) - 1);
+    _items[_itemCount].text[sizeof(_items[0].text) - 1] = '\0';
+    _items[_itemCount].hasIcon = true;
+    _items[_itemCount].iconCircle = circle;
+    strncpy(_items[_itemCount].iconChar, iconChar, sizeof(_items[0].iconChar) - 1);
+    _items[_itemCount].iconChar[sizeof(_items[0].iconChar) - 1] = '\0';
+    _items[_itemCount].iconColor = iconColor;
+    _items[_itemCount].iconBorderColor = iconBorderColor;
+    _items[_itemCount].iconCharColor = iconCharColor;
+    _dirty = true;
+    return _itemCount++;
+}
+
+void UIDropdown::setItemIcon(int index, const char* iconChar,
+                             uint32_t iconColor, bool circle,
+                             uint32_t iconBorderColor, uint32_t iconCharColor) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].hasIcon = true;
+    _items[index].iconCircle = circle;
+    strncpy(_items[index].iconChar, iconChar, sizeof(_items[0].iconChar) - 1);
+    _items[index].iconChar[sizeof(_items[0].iconChar) - 1] = '\0';
+    _items[index].iconColor = iconColor;
+    _items[index].iconBorderColor = iconBorderColor;
+    _items[index].iconCharColor = iconCharColor;
+    _dirty = true;
+}
+
+void UIDropdown::clearItemIcon(int index) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].hasIcon = false;
+    _items[index].iconChar[0] = '\0';
+    _dirty = true;
+}
+
+void UIDropdown::removeItem(int index) {
+    if (index < 0 || index >= _itemCount) return;
+    for (int i = index; i < _itemCount - 1; i++) {
+        _items[i] = _items[i + 1];
+    }
+    _itemCount--;
+    if (_selectedIndex == index) _selectedIndex = -1;
+    else if (_selectedIndex > index) _selectedIndex--;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIDropdown::clearItems() {
+    _itemCount = 0;
+    _selectedIndex = -1;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UIDropdown::setItemText(int index, const char* text) {
+    if (index < 0 || index >= _itemCount) return;
+    strncpy(_items[index].text, text, sizeof(_items[0].text) - 1);
+    _items[index].text[sizeof(_items[0].text) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIDropdown::setItemEnabled(int index, bool enabled) {
+    if (index < 0 || index >= _itemCount) return;
+    _items[index].enabled = enabled;
+    _dirty = true;
+}
+
+const char* UIDropdown::getSelectedText() const {
+    if (_selectedIndex < 0 || _selectedIndex >= _itemCount) return "";
+    return _items[_selectedIndex].text;
+}
+
+void UIDropdown::setSelectedIndex(int index) {
+    if (index < -1 || index >= _itemCount) return;
+    _selectedIndex = index;
+    _dirty = true;
+}
+
+void UIDropdown::clearSelection() {
+    _selectedIndex = -1;
+    _dirty = true;
+}
+
+void UIDropdown::setPlaceholder(const char* text) {
+    strncpy(_placeholder, text, sizeof(_placeholder) - 1);
+    _placeholder[sizeof(_placeholder) - 1] = '\0';
+    _dirty = true;
+}
+
+// ── Open / Close ────────────────────────────────────────────────────────────
+
+void UIDropdown::open() {
+    _open = true;
+    _btnPressed = false;
+    _scrollOffset = 0;
+    // If an item is selected, scroll to make it visible
+    if (_selectedIndex >= 0) {
+        int16_t itemTop = _selectedIndex * _itemH;
+        if (itemTop > 0) {
+            _scrollOffset = itemTop;
+            clampScroll();
+        }
+    }
+    _dirty = true;
+}
+
+void UIDropdown::close() {
+    _open = false;
+    _btnPressed = false;
+    _dragging = false;
+    _wasDrag = false;
+    _dirty = true;
+}
+
+// ── Geometry helpers ────────────────────────────────────────────────────────
+
+int16_t UIDropdown::maxScroll() const {
+    int16_t contentH = totalContentHeight();
+    if (contentH <= _listH) return 0;
+    return contentH - _listH;
+}
+
+void UIDropdown::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+int UIDropdown::itemAtY(int16_t ty) const {
+    if (ty < _listY || ty >= _listY + _listH) return -1;
+    int16_t relY = ty - _listY + _scrollOffset;
+    int idx = relY / _itemH;
+    if (idx < 0 || idx >= _itemCount) return -1;
+    return idx;
+}
+
+void UIDropdown::calcListGeometry() {
+    // Position the dropdown list directly below the button
+    _listX = _x;
+    _listW = _w;
+
+    // Calculate visible items (capped by maxVisible and actual count)
+    int visCount = _itemCount;
+    if (visCount > _maxVisible) visCount = _maxVisible;
+    if (visCount < 1) visCount = 1;
+
+    _listH = visCount * _itemH;
+
+    // Position below button, but flip upward if it would go off-screen
+    int16_t belowY = _y + _h;
+    int16_t aboveY = _y - _listH;
+
+    if (belowY + _listH <= TAB5_SCREEN_H) {
+        _listY = belowY;
+    } else if (aboveY >= 0) {
+        _listY = aboveY;
+    } else {
+        // Constrain to screen bottom
+        _listY = belowY;
+        _listH = TAB5_SCREEN_H - belowY;
+    }
+}
+
+// ── Drawing ─────────────────────────────────────────────────────────────────
+
+void UIDropdown::draw(M5GFX& gfx) {
+    if (!_visible) return;
+
+    // Auto-scale item height from text size
+    gfx.setTextSize(_textSize);
+    int16_t fh = (int16_t)(gfx.fontHeight() * _textSize);
+    _itemH = fh + TAB5_PADDING * 2;
+    if (_itemH < 32) _itemH = 32;
+
+    // Icon size derived from item height
+    int16_t iconSize = _itemH - TAB5_PADDING;
+    if (iconSize < 16) iconSize = 16;
+
+    // ── Draw collapsed button ──
+    uint32_t btnBg = _btnPressed
+                   ? rgb888(darken(_bgColor))
+                   : rgb888(_bgColor);
+    gfx.fillSmoothRoundRect(_x, _y, _w, _h, TAB5_BTN_R, btnBg);
+    gfx.drawRoundRect(_x, _y, _w, _h, TAB5_BTN_R, rgb888(_borderColor));
+
+    // Selected text or placeholder
+    const char* displayText = (_selectedIndex >= 0)
+                            ? _items[_selectedIndex].text
+                            : _placeholder;
+    uint32_t displayColor = (_selectedIndex >= 0)
+                          ? rgb888(_textColor)
+                          : rgb888(Tab5Theme::TEXT_SECONDARY);
+
+    gfx.setTextSize(_textSize);
+    gfx.setTextDatum(textdatum_t::middle_left);
+    gfx.setTextColor(displayColor);
+
+    // Clip text so it doesn't overlap the arrow area
+    int16_t arrowSpace = 30;
+    gfx.setClipRect(_x + TAB5_PADDING, _y, _w - TAB5_PADDING - arrowSpace, _h);
+    gfx.drawString(displayText, _x + TAB5_PADDING, _y + _h / 2);
+    gfx.clearClipRect();
+
+    // ▼ arrow indicator on the right
+    int16_t arrowX = _x + _w - 20;
+    int16_t arrowY = _y + _h / 2;
+    int16_t as = 5;  // Arrow half-size
+    if (_open) {
+        // ▲ when open
+        gfx.fillTriangle(arrowX, arrowY - as,
+                          arrowX - as, arrowY + as,
+                          arrowX + as, arrowY + as,
+                          rgb888(Tab5Theme::TEXT_SECONDARY));
+    } else {
+        // ▼ when closed
+        gfx.fillTriangle(arrowX - as, arrowY - as,
+                          arrowX + as, arrowY - as,
+                          arrowX, arrowY + as,
+                          rgb888(Tab5Theme::TEXT_SECONDARY));
+    }
+
+    // ── Draw expanded list overlay ──
+    if (_open) {
+        calcListGeometry();
+
+        // Shadow
+        gfx.fillRect(_listX + 3, _listY + 3, _listW, _listH, rgb888(0x0A0A14));
+
+        // Background
+        gfx.fillRect(_listX, _listY, _listW, _listH, rgb888(_bgColor));
+
+        // Border
+        gfx.drawRect(_listX, _listY, _listW, _listH, rgb888(_borderColor));
+
+        // Clip region for items
+        gfx.setClipRect(_listX + 1, _listY + 1, _listW - 2, _listH - 2);
+
+        // Draw visible items
+        for (int i = 0; i < _itemCount; i++) {
+            int16_t itemY = _listY + (i * _itemH) - _scrollOffset;
+
+            // Skip items fully outside visible area
+            if (itemY + _itemH <= _listY || itemY >= _listY + _listH) continue;
+
+            // Selected highlight
+            if (i == _selectedIndex) {
+                gfx.fillRect(_listX + 1, itemY,
+                             _listW - TAB5_LIST_SCROLLBAR_W - 2, _itemH,
+                             rgb888(_selectColor));
+            }
+
+            // Item text
+            gfx.setTextSize(_textSize);
+            gfx.setTextDatum(textdatum_t::middle_left);
+
+            uint32_t tc;
+            if (!_items[i].enabled) {
+                tc = rgb888(Tab5Theme::TEXT_DISABLED);
+            } else if (i == _selectedIndex) {
+                tc = rgb888(Tab5Theme::TEXT_PRIMARY);
+            } else {
+                tc = rgb888(_textColor);
+            }
+            gfx.setTextColor(tc);
+            gfx.drawString(_items[i].text, _listX + TAB5_PADDING,
+                           itemY + _itemH / 2);
+
+            // Right-aligned icon (if present)
+            if (_items[i].hasIcon) {
+                int16_t iconX = _listX + _listW - TAB5_LIST_SCROLLBAR_W
+                              - TAB5_PADDING - iconSize - 2;
+                int16_t iconY_ = itemY + (_itemH - iconSize) / 2;
+
+                if (_items[i].iconCircle) {
+                    int16_t cr = iconSize / 2;
+                    int16_t cx = iconX + cr;
+                    int16_t cy = iconY_ + cr;
+                    gfx.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
+                    gfx.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
+                    if (_items[i].iconChar[0] != '\0') {
+                        gfx.setTextSize(_textSize * 0.8f);
+                        gfx.setTextDatum(textdatum_t::middle_center);
+                        gfx.setTextColor(rgb888(_items[i].iconCharColor));
+                        gfx.drawString(_items[i].iconChar, cx, cy);
+                    }
+                } else {
+                    gfx.fillSmoothRoundRect(iconX, iconY_, iconSize, iconSize,
+                                             4, rgb888(_items[i].iconColor));
+                    gfx.drawRoundRect(iconX, iconY_, iconSize, iconSize,
+                                       4, rgb888(_items[i].iconBorderColor));
+                    if (_items[i].iconChar[0] != '\0') {
+                        gfx.setTextSize(_textSize * 0.8f);
+                        gfx.setTextDatum(textdatum_t::middle_center);
+                        gfx.setTextColor(rgb888(_items[i].iconCharColor));
+                        gfx.drawString(_items[i].iconChar,
+                                       iconX + iconSize / 2,
+                                       iconY_ + iconSize / 2);
+                    }
+                }
+            }
+
+            // Divider between items
+            if (i < _itemCount - 1) {
+                int16_t divY = itemY + _itemH - 1;
+                gfx.drawFastHLine(_listX + TAB5_PADDING, divY,
+                                  _listW - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2,
+                                  rgb888(Tab5Theme::DIVIDER));
+            }
+        }
+
+        // Clear clip
+        gfx.clearClipRect();
+
+        // Scrollbar (only if content overflows)
+        int16_t contentH = totalContentHeight();
+        if (contentH > _listH) {
+            int16_t sbX = _listX + _listW - TAB5_LIST_SCROLLBAR_W - 1;
+            int16_t sbAreaH = _listH - 2;
+
+            // Scrollbar track
+            gfx.fillRect(sbX, _listY + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                         rgb888(darken(_bgColor, 60)));
+
+            // Scrollbar thumb
+            float visibleRatio = (float)_listH / (float)contentH;
+            int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+            if (thumbH < 20) thumbH = 20;
+
+            float scrollRatio = (float)_scrollOffset / (float)maxScroll();
+            int16_t thumbY = _listY + 1
+                           + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+            gfx.fillSmoothRoundRect(sbX, thumbY,
+                                     TAB5_LIST_SCROLLBAR_W, thumbH,
+                                     3, rgb888(Tab5Theme::TEXT_DISABLED));
+        }
+    }
+
+    _dirty = false;
+}
+
+// ── Touch handling ──────────────────────────────────────────────────────────
+
+void UIDropdown::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_open) {
+        // Check if touch is inside the dropdown list
+        if (tx >= _listX && tx < _listX + _listW &&
+            ty >= _listY && ty < _listY + _listH) {
+            // Start potential scroll/tap on list
+            _dragging = false;
+            _wasDrag = false;
+            _touchStartY = ty;
+            _touchDownY = ty;
+            _scrollStart = _scrollOffset;
+            _pressed = true;
+        }
+        // Touch on the button area while open — will close on touch-up
+        // Touch outside both — will close on touch-up
+    } else {
+        // Collapsed: press the button
+        if (hitTest(tx, ty)) {
+            _btnPressed = true;
+            _dirty = true;
+            if (_onTouch) _onTouch(TouchEvent::TOUCH);
+        }
+    }
+}
+
+void UIDropdown::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_open || !_pressed) return;
+
+    int16_t dy = _touchStartY - ty;
+
+    // Check if movement exceeds drag threshold
+    int16_t totalDy = ty - _touchDownY;
+    if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+        _wasDrag = true;
+    }
+
+    if (_wasDrag) {
+        _scrollOffset = _scrollStart + dy;
+        clampScroll();
+        _dirty = true;
+    }
+}
+
+void UIDropdown::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_open) {
+        // Check if tap landed in the list area
+        bool inList = (tx >= _listX && tx < _listX + _listW &&
+                       ty >= _listY && ty < _listY + _listH);
+
+        if (inList && _pressed && !_wasDrag) {
+            // Tap on an item — select it and close
+            int idx = itemAtY(ty);
+            if (idx >= 0 && idx < _itemCount && _items[idx].enabled) {
+                _selectedIndex = idx;
+                if (_onSelect) _onSelect(idx, _items[idx].text);
+            }
+            close();
+        } else if (inList && _pressed) {
+            // Was a drag — just end the drag, stay open
+            _pressed = false;
+            _dragging = false;
+            _wasDrag = false;
+        } else {
+            // Touch outside the list — dismiss
+            close();
+        }
+        _pressed = false;
+        _dragging = false;
+        _wasDrag = false;
+    } else {
+        // Collapsed: toggle open
+        if (_btnPressed && hitTest(tx, ty)) {
+            _btnPressed = false;
+            open();
+        } else {
+            _btnPressed = false;
+            _dirty = true;
+        }
         if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
     }
 }
