@@ -1,6 +1,6 @@
 # Tab5UI — Touchscreen UI Library for M5Stack Tab5
 
-A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M5Stack Tab5's 5-inch **1280×720** IPS capacitive touchscreen.
+A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M5Stack Tab5's 5-inch **1280×720** IPS capacitive touchscreen. Supports both **landscape** (1280×720) and **portrait** (720×1280) orientations.
 
 ## Features
 
@@ -89,7 +89,8 @@ UIButton    btn(50, 100, 200, 52, "Press Me");
 
 void setup() {
     display.init();
-    display.setRotation(1);           // Landscape
+    display.setRotation(1);           // Landscape (use 0 for portrait)
+    Tab5UI::init(display);            // Must be called after init + rotation
     display.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
@@ -102,7 +103,7 @@ void setup() {
     ui.addElement(&titleBar);
     ui.addElement(&btn);
     ui.addElement(&statusBar);
-    ui.setContentArea(TAB5_TITLE_H, TAB5_SCREEN_H - TAB5_STATUS_H);
+    ui.setContentArea(TAB5_TITLE_H, Tab5UI::screenH() - TAB5_STATUS_H);
     ui.drawAll();
 }
 
@@ -114,7 +115,59 @@ void loop() {
 
 ---
 
+## Orientation Support
+
+Tab5UI works in both **landscape** (1280×720, rotation 1) and **portrait** (720×1280, rotation 0) orientations.
+
+Call `Tab5UI::init(display)` once in `setup()` **after** `display.init()` and `display.setRotation()`:
+
+```cpp
+void setup() {
+    display.init();
+    display.setRotation(0);        // 0 = portrait, 1 = landscape
+    Tab5UI::init(display);         // Captures runtime screen dimensions
+    // ...
+}
+```
+
+### What adapts automatically
+
+| Widget | Adaptation |
+|---|---|
+| **UITitleBar** | Stretches to screen width |
+| **UIStatusBar** | Stretches to screen width, repositions to screen bottom |
+| **UIKeyboard** | Repositions to screen bottom, keys scale to fit width |
+| **UIInfoPopup** | Auto-sizes and centers within actual screen bounds |
+| **UIConfirmPopup** | Auto-sizes and centers within actual screen bounds |
+| **UIDropdown** | Overflow detection uses actual screen height |
+| **UIManager** | Content area bottom defaults to actual screen height |
+
+### Runtime dimension queries
+
+```cpp
+int16_t w = Tab5UI::screenW();   // Actual screen width  (720 or 1280)
+int16_t h = Tab5UI::screenH();   // Actual screen height (1280 or 720)
+```
+
+Use these instead of the compile-time `TAB5_SCREEN_W` / `TAB5_SCREEN_H` macros when you need values that match the current orientation.
+
+### Positioning widgets for portrait
+
+Since widget objects are constructed globally (before `setup()`), use compile-time defaults or placeholder values in constructors, then call `setPosition()` / `setSize()` in `setup()` after `Tab5UI::init()`. See the **WiFi Scanner** demo for a complete portrait example.
+
+---
+
 ## API Reference
+
+### Tab5UI Namespace
+
+```cpp
+namespace Tab5UI {
+    void     init(M5GFX& gfx);   // Capture runtime screen dimensions
+    int16_t  screenW();           // Current screen width
+    int16_t  screenH();           // Current screen height
+}
+```
 
 ### Screen Constants
 
@@ -730,11 +783,13 @@ Tab5UI/
 │   └── screenshot9_tab_text.png
 └── examples/
     ├── Tab5UI_Demo/
-    │   └── Tab5UI_Demo.ino           # Full demo sketch
+    │   └── Tab5UI_Demo.ino           # Full demo sketch (landscape)
     ├── Tab5UI_List_Demo/
-    │   └── Tab5UI_List_Demo.ino      # List widget demo
-    └── Tab5UI_Tab_Demo/
-        └── Tab5UI_Tab_Demo.ino       # Tab view demo
+    │   └── Tab5UI_List_Demo.ino      # List widget demo (landscape)
+    ├── Tab5UI_Tab_Demo/
+    │   └── Tab5UI_Tab_Demo.ino       # Tab view demo (landscape)
+    └── Tab5UI_WiFi_Demo/
+        └── Tab5UI_WiFi_Demo.ino      # WiFi scanner demo (portrait)
 ```
 
 ---
@@ -750,6 +805,7 @@ Tab5UI/
 - Set `display.setFont(&fonts::DejaVu18)` for crisp text at the Tab5's resolution.
 - Use `setTag("myBtn")` + `findByTag("myBtn")` to look up elements by name.
 - All colors are specified as 24-bit RGB hex values (e.g. `0xFF9800`).
+- For portrait orientation, call `display.setRotation(0)` then `Tab5UI::init(display)` — see the **WiFi Scanner** demo.
 
 ---
 

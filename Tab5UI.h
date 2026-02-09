@@ -17,7 +17,16 @@
 #include <vector>
 #include <functional>
 
-// ─── Screen Constants (M5Stack Tab5: 1280x720) ─────────────────────────────
+// ─── Runtime Screen Dimensions ──────────────────────────────────────────────
+// Call Tab5UI::init(gfx) once in setup() to read the actual display size.
+// Supports both landscape (1280×720) and portrait (720×1280) orientations.
+namespace Tab5UI {
+    void     init(M5GFX& gfx);           // Read display dimensions
+    int16_t  screenW();                   // Current screen width
+    int16_t  screenH();                   // Current screen height
+}
+
+// ─── Default Screen Constants (landscape 1280×720) ─────────────────────────
 #define TAB5_SCREEN_W   1280
 #define TAB5_SCREEN_H   720
 
@@ -47,7 +56,7 @@
 #define TAB5_LIST_SCROLLBAR_W 6     // Scrollbar width
 #define TAB5_TAB_BAR_H      48      // Tab bar height
 #define TAB5_TAB_MAX_PAGES  8       // Max pages in a tab view
-#define TAB5_TAB_MAX_CHILDREN 24    // Max child elements per page
+#define TAB5_TAB_MAX_CHILDREN 32    // Max child elements per page
 #define TAB5_FONT_SIZE_SM   1.4f    // Small text
 #define TAB5_FONT_SIZE_MD   1.8f    // Medium text (labels, buttons)
 #define TAB5_FONT_SIZE_LG   2.4f    // Large text (title bar)
@@ -1457,7 +1466,7 @@ private:
     UIElement* _touchedElem = nullptr;
 
     int16_t _contentTop    = 0;
-    int16_t _contentBottom = TAB5_SCREEN_H;
+    int16_t _contentBottom = 0;   // Set in constructor from runtime screen height
 
     // Debounce
     unsigned long _lastTouchTime = 0;

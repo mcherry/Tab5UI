@@ -7,6 +7,21 @@
 #include <string.h>
 #include <algorithm>
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  Tab5UI Runtime Screen Dimensions
+// ═════════════════════════════════════════════════════════════════════════════
+
+static int16_t _tab5ScreenW = TAB5_SCREEN_W;  // Default: landscape 1280
+static int16_t _tab5ScreenH = TAB5_SCREEN_H;  // Default: landscape 720
+
+void Tab5UI::init(M5GFX& gfx) {
+    _tab5ScreenW = (int16_t)gfx.width();
+    _tab5ScreenH = (int16_t)gfx.height();
+}
+
+int16_t Tab5UI::screenW() { return _tab5ScreenW; }
+int16_t Tab5UI::screenH() { return _tab5ScreenH; }
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helper: Convert 24-bit RGB888 to M5GFX-compatible uint32_t color
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,6 +224,9 @@ void UITitleBar::setRightText(const char* text) {
 void UITitleBar::draw(M5GFX& gfx) {
     if (!_visible) return;
 
+    // Auto-adjust width to match runtime screen width
+    _w = Tab5UI::screenW();
+
     // Background
     gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
 
@@ -318,6 +336,10 @@ void UIStatusBar::setRightText(const char* text) {
 
 void UIStatusBar::draw(M5GFX& gfx) {
     if (!_visible) return;
+
+    // Auto-adjust position and width for runtime screen dimensions
+    _w = Tab5UI::screenW();
+    _y = Tab5UI::screenH() - _h;
 
     // Background
     gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
@@ -842,6 +864,9 @@ void UIKeyboard::setLayer(Layer layer) {
 }
 
 void UIKeyboard::show() {
+    // Reposition for current screen dimensions
+    _w = Tab5UI::screenW();
+    _y = Tab5UI::screenH() - TAB5_KB_H;
     _visible = true;
     _pressedRow = -1;
     _pressedCol = -1;
@@ -867,7 +892,10 @@ void UIKeyboard::keyRect(int row, int col,
     for (int c = 0; c < _cols[row]; ++c) {
         totalUnits += _keys[row][c].widthMult;
     }
-    float unitW = (float)(TAB5_KB_KEY_W + TAB5_KB_KEY_GAP);
+    // Dynamic unit width: scale from screen width (fits 10 unit-keys + gaps + padding)
+    float unitW = (_w - TAB5_PADDING * 2) / 10.2f;
+    if (unitW > (float)(TAB5_KB_KEY_W + TAB5_KB_KEY_GAP))
+        unitW = (float)(TAB5_KB_KEY_W + TAB5_KB_KEY_GAP);  // Cap at landscape size
     float rowPixelW = totalUnits * unitW - TAB5_KB_KEY_GAP;
     float startX = (_w - rowPixelW) / 2.0f;
 
@@ -1573,8 +1601,8 @@ void UIInfoPopup::autoSize(M5GFX& gfx) {
     const int16_t minW        = 200;
     const int16_t minH        = 140;
     const int16_t screenMargin = 40;                   // min gap from screen edge
-    const int16_t maxW        = TAB5_SCREEN_W - screenMargin * 2;
-    const int16_t maxH        = TAB5_SCREEN_H - screenMargin * 2;
+    const int16_t maxW        = Tab5UI::screenW() - screenMargin * 2;
+    const int16_t maxH        = Tab5UI::screenH() - screenMargin * 2;
 
     // Measure title width
     gfx.setTextSize(TAB5_FONT_SIZE_LG);
@@ -1628,8 +1656,8 @@ void UIInfoPopup::autoSize(M5GFX& gfx) {
     // Apply dimensions and center on screen
     _w = neededW;
     _h = neededH;
-    _x = (TAB5_SCREEN_W - _w) / 2;
-    _y = (TAB5_SCREEN_H - _h) / 2;
+    _x = (Tab5UI::screenW() - _w) / 2;
+    _y = (Tab5UI::screenH() - _h) / 2;
 
     _needsAutoSize = false;
 }
@@ -1883,8 +1911,8 @@ void UIConfirmPopup::autoSize(M5GFX& gfx) {
     const int16_t minW         = 260;
     const int16_t minH         = 140;
     const int16_t screenMargin = 40;
-    const int16_t maxW         = TAB5_SCREEN_W - screenMargin * 2;
-    const int16_t maxH         = TAB5_SCREEN_H - screenMargin * 2;
+    const int16_t maxW         = Tab5UI::screenW() - screenMargin * 2;
+    const int16_t maxH         = Tab5UI::screenH() - screenMargin * 2;
 
     // Measure title width
     gfx.setTextSize(TAB5_FONT_SIZE_LG);
@@ -1934,8 +1962,8 @@ void UIConfirmPopup::autoSize(M5GFX& gfx) {
 
     _w = neededW;
     _h = neededH;
-    _x = (TAB5_SCREEN_W - _w) / 2;
-    _y = (TAB5_SCREEN_H - _h) / 2;
+    _x = (Tab5UI::screenW() - _w) / 2;
+    _y = (Tab5UI::screenH() - _h) / 2;
 
     _needsAutoSize = false;
 }
@@ -3309,14 +3337,14 @@ void UIDropdown::calcListGeometry() {
     int16_t belowY = _y + _h;
     int16_t aboveY = _y - _listH;
 
-    if (belowY + _listH <= TAB5_SCREEN_H) {
+    if (belowY + _listH <= Tab5UI::screenH()) {
         _listY = belowY;
     } else if (aboveY >= 0) {
         _listY = aboveY;
     } else {
         // Constrain to screen bottom
         _listY = belowY;
-        _listH = TAB5_SCREEN_H - belowY;
+        _listH = Tab5UI::screenH() - belowY;
     }
 }
 
@@ -3658,6 +3686,9 @@ UIElement* UIManager::findByTag(const char* tag) {
 }
 
 void UIManager::update() {
+    // Lazy-init content bottom from runtime screen height
+    if (_contentBottom == 0) _contentBottom = Tab5UI::screenH();
+
     unsigned long now = millis();
     if (now - _lastTouchTime < TOUCH_DEBOUNCE_MS) return;
 

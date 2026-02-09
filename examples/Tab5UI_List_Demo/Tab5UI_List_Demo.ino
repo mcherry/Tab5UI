@@ -42,6 +42,7 @@ UIInfoPopup popup("Selection", "No item selected");
 void setup() {
     display.init();
     display.setRotation(1);           // Landscape
+    Tab5UI::init(display);
     display.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
