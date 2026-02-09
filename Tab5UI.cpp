@@ -2150,14 +2150,15 @@ void UIScrollText::reflow(M5GFX& gfx) {
     _lineCount = 0;
 
     // Compute line heights for each level
+    // Note: fontHeight() already returns the scaled height after setTextSize()
     gfx.setTextSize(TAB5_FONT_SIZE_LG);
-    int16_t h1H = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_LG) + 10; // extra spacing
+    int16_t h1H = gfx.fontHeight() + 10;
     gfx.setTextSize((_textSize + TAB5_FONT_SIZE_LG) * 0.5f);
-    int16_t h2H = (int16_t)(gfx.fontHeight() * ((_textSize + TAB5_FONT_SIZE_LG) * 0.5f)) + 8;
+    int16_t h2H = gfx.fontHeight() + 8;
     gfx.setTextSize(_textSize * 1.1f);
-    int16_t h3H = (int16_t)(gfx.fontHeight() * (_textSize * 1.1f)) + 6;
+    int16_t h3H = gfx.fontHeight() + 6;
     gfx.setTextSize(_textSize);
-    int16_t normalH = (int16_t)(gfx.fontHeight() * _textSize) + 4;
+    int16_t normalH = gfx.fontHeight() + 4;
     int16_t ruleH   = normalH;  // Rule takes a full line height
     int16_t bulletIndent = 28;  // Pixels to indent bullet text
 
@@ -2382,7 +2383,7 @@ void UIScrollText::drawMarkdownLine(M5GFX& gfx, const char* text, int len,
             buf[spanLen] = '\0';
             gfx.setTextSize(textSize);
             int16_t codeW = gfx.textWidth(buf);
-            int16_t fh = (int16_t)(gfx.fontHeight() * textSize);
+            int16_t fh = gfx.fontHeight();  // already scaled by setTextSize()
             // Code background
             gfx.fillRect(curX - 2, y, codeW + 4, fh, rgb888(_codeBgColor));
             gfx.setTextColor(rgb888(_codeColor));
@@ -2493,10 +2494,11 @@ void UIScrollText::draw(M5GFX& gfx) {
 
         // ── Bullet prefix ──
         if (sl.bullet) {
-            gfx.setTextSize(_textSize);
-            gfx.setTextDatum(textdatum_t::top_left);
-            gfx.setTextColor(rgb888(_bulletColor));
-            gfx.drawString("\xe2\x80\xa2", innerX + 4, lineY);  // UTF-8 bullet "•"
+            gfx.setTextSize(fontSize);
+            int16_t bulletR = 4;
+            int16_t bulletCX = innerX + 10;
+            int16_t bulletCY = lineY + gfx.fontHeight() / 2;
+            gfx.fillCircle(bulletCX, bulletCY, bulletR, rgb888(_bulletColor));
             drawX = innerX + bulletIndent;
         }
         // Continuation lines of bullets (not first) still get indent
