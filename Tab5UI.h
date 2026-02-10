@@ -697,6 +697,11 @@ private:
     void keyRect(int row, int col, int16_t& kx, int16_t& ky, int16_t& kw, int16_t& kh) const;
     // Find which key (row,col) is at touch coordinates; returns false if none
     bool keyAt(int16_t tx, int16_t ty, int& row, int& col) const;
+    // Redraw a single key directly to the display (avoids full sprite redraw)
+    void drawKey(LovyanGFX& gfx, int row, int col, bool pressed);
+
+    // Cached display pointer for single-key redraws from touch handlers
+    LovyanGFX* _lastDisplay = nullptr;
 };
 
 /*******************************************************************************

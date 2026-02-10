@@ -29,6 +29,10 @@ All notable changes to the Tab5UI library are documented here.
 - `UITabView::drawTabBar()` — Made public for targeted tab bar redraws during modal close.
 - `UIDropdown::setContentBounds(int16_t top, int16_t bottom)` — Constrain the dropdown list overlay to a custom vertical region.
 
+### Performance
+- **Keyboard typing speed** — Key press/release no longer triggers a full 1280×290 sprite redraw of the entire keyboard (~371K pixels). Added `drawKey()` method that redraws only the single affected key directly to the display (~5K pixels). Press highlight and release unhighlight are now near-instantaneous.
+- **Touch release debounce removed** — `_lastTouchTime` is no longer reset on touch release, eliminating the 30ms dead zone between consecutive key presses for faster typing.
+
 ### Other Changes
 - Replaced `delay(10)` with `yield()` in all 5 example sketch `loop()` functions for better ESP32 task scheduling.
 - Renamed internal `_min` / `_max` members to `_minVal` / `_maxVal` to avoid conflicts with Arduino's `_min` / `_max` macros.

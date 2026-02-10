@@ -1241,8 +1241,31 @@ bool UIKeyboard::keyAt(int16_t tx, int16_t ty, int& row, int& col) const {
     return false;
 }
 
+void UIKeyboard::drawKey(LovyanGFX& gfx, int row, int col, bool pressed) {
+    if (row < 0 || col < 0 || row >= TAB5_KB_ROWS || col >= _cols[row]) return;
+
+    int16_t kx, ky, kw, kh;
+    keyRect(row, col, kx, ky, kw, kh);
+
+    const UIKey& key = _keys[row][col];
+    uint32_t bg = pressed
+                ? rgb888(darken(key.bgColor, 30))
+                : rgb888(key.bgColor);
+
+    gfx.startWrite();
+    gfx.fillSmoothRoundRect(kx, ky, kw, kh, 4, bg);
+    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    gfx.setTextDatum(textdatum_t::middle_center);
+    gfx.setTextColor(rgb888(_textColor));
+    gfx.drawString(key.label, kx + kw / 2, ky + kh / 2);
+    gfx.endWrite();
+}
+
 void UIKeyboard::draw(LovyanGFX& gfx) {
     if (!_visible) return;
+
+    // Cache display pointer so touch handlers can do single-key redraws
+    _lastDisplay = &gfx;
 
     // ── Try sprite-buffered rendering for flicker-free key presses ──
     M5Canvas* spr = acquireSprite(&gfx, _w, _h);
@@ -1295,15 +1318,21 @@ void UIKeyboard::handleTouchDown(int16_t tx, int16_t ty) {
     if (keyAt(tx, ty, row, col)) {
         _pressedRow = row;
         _pressedCol = col;
-        _dirty = true;
+        // Draw only the pressed key highlight directly — no full redraw
+        if (_lastDisplay) drawKey(*_lastDisplay, row, col, true);
     }
 }
 
 void UIKeyboard::handleTouchUp(int16_t tx, int16_t ty) {
     if (!_visible) return;
 
+    int prevRow = _pressedRow;
+    int prevCol = _pressedCol;
+    _pressedRow = -1;
+    _pressedCol = -1;
+
     int row, col;
-    if (keyAt(tx, ty, row, col) && row == _pressedRow && col == _pressedCol) {
+    if (keyAt(tx, ty, row, col) && row == prevRow && col == prevCol) {
         const UIKey& key = _keys[row][col];
 
         if (key.value != 0) {
@@ -1312,24 +1341,26 @@ void UIKeyboard::handleTouchUp(int16_t tx, int16_t ty) {
 
             // After typing a letter in UPPER mode, revert to LOWER
             if (_layer == UPPER && key.value >= 'A' && key.value <= 'Z') {
-                setLayer(LOWER);
+                setLayer(LOWER);  // setLayer sets _dirty for full redraw
+            } else {
+                // Unhighlight only the released key — no full redraw
+                if (_lastDisplay) drawKey(*_lastDisplay, row, col, false);
             }
         } else {
             // Special mode-switch keys (value == 0, label determines action)
             if (strcmp(key.label, "Shft") == 0) {
-                // Shift toggle
                 setLayer(_layer == UPPER ? LOWER : UPPER);
             } else if (strcmp(key.label, "123") == 0) {
                 setLayer(SYMBOLS);
             } else if (strcmp(key.label, "ABC") == 0) {
                 setLayer(LOWER);
             }
+            // setLayer already sets _dirty for full redraw
         }
+    } else if (prevRow >= 0 && prevCol >= 0) {
+        // Finger moved off the key — just unhighlight it
+        if (_lastDisplay) drawKey(*_lastDisplay, prevRow, prevCol, false);
     }
-
-    _pressedRow = -1;
-    _pressedCol = -1;
-    _dirty = true;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -4832,7 +4863,8 @@ void UIManager::update() {
             _touchedElem = nullptr;
         }
         _wasTouched = false;
-        _lastTouchTime = now;
+        // Don't reset _lastTouchTime on release — allows immediate
+        // re-touch for fast keyboard typing without debounce delay.
     }
 
     // Redraw dirty elements
