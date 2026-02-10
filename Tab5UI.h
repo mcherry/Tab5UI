@@ -1745,6 +1745,13 @@ public:
     void wake();                              // Manually wake the screen
     void sleep();                             // Manually put screen to sleep
     void setBrightness(uint8_t b);            // Set display brightness (also used as wake brightness)
+    void setLightSleep(bool enable);          // Enable ESP32 light sleep when screen is off
+    bool getLightSleep() const { return _lightSleepEnabled; }
+
+    // Sleep / Wake callbacks
+    using SleepCallback = std::function<void()>;
+    void setOnSleep(SleepCallback cb) { _onSleep = cb; }
+    void setOnWake(SleepCallback cb)  { _onWake = cb; }
 
 private:
     M5GFX& _gfx;
@@ -1771,6 +1778,9 @@ private:
     unsigned long _lastActivityTime = 0;       // millis() of last touch
     bool          _screenAsleep     = false;
     uint8_t       _brightness       = 128;     // User-set brightness to restore on wake
+    bool          _lightSleepEnabled = false;  // Enter ESP32 light sleep when screen is off
+    SleepCallback _onSleep = nullptr;
+    SleepCallback _onWake  = nullptr;
 };
 
 #endif // TAB5UI_H

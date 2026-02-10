@@ -137,6 +137,7 @@ void setup() {
     ui.setContentArea(TAB5_TITLE_H, screenH - TAB5_STATUS_H);
     ui.drawAll();
     ui.setSleepTimeout(5);           // Screen off after 5 min idle
+    ui.setLightSleep(true);          // Enter low-power light sleep
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

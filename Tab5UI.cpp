@@ -4726,17 +4726,50 @@ void UIManager::setBrightness(uint8_t b) {
     if (!_screenAsleep) _gfx.setBrightness(b);
 }
 
+void UIManager::setLightSleep(bool enable) {
+    _lightSleepEnabled = enable;
+}
+
 void UIManager::wake() {
     if (!_screenAsleep) return;
     _screenAsleep = false;
     _gfx.setBrightness(_brightness);
     _lastActivityTime = millis();
+    if (_onWake) _onWake();
 }
 
 void UIManager::sleep() {
     if (_screenAsleep) return;
     _screenAsleep = true;
     _gfx.setBrightness(0);
+    if (_onSleep) _onSleep();
+
+#if defined(ESP32)
+    if (_lightSleepEnabled) {
+        // ── Low-power idle with touch-to-wake ──
+        // The backlight is already off (the dominant power draw).
+        // We poll getTouch() which internally checks the GT911 INT pin
+        // via lgfx::gpio_in() — when INT is HIGH (no touch) it returns
+        // immediately with zero I2C traffic.  delay() yields to the
+        // FreeRTOS idle task so the CPU stays mostly in WFI.
+
+        // Drain any pending touch data
+        lgfx::touch_point_t tp;
+        while (_gfx.getTouch(&tp, 1) > 0) { delay(2); }
+
+        // Block until a new touch is detected
+        while (_gfx.getTouch(&tp, 1) == 0) {
+            delay(50);
+        }
+
+        // Drain remaining touch events so the wake touch is consumed
+        delay(10);
+        while (_gfx.getTouch(&tp, 1) > 0) { delay(2); }
+
+        // ── Fully wake the display ──
+        wake();
+    }
+#endif
 }
 
 void UIManager::update() {
@@ -4750,6 +4783,10 @@ void UIManager::update() {
         unsigned long timeoutMs = (unsigned long)_sleepTimeoutMin * 60000UL;
         if (now - _lastActivityTime >= timeoutMs) {
             sleep();
+            // If light sleep was active, sleep() blocks until touch-wake
+            // and calls wake() internally.  Restart update() so 'now' is
+            // refreshed — otherwise the stale timestamp triggers re-sleep.
+            return;
         }
     }
 

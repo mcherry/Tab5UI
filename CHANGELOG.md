@@ -28,6 +28,8 @@ All notable changes to the Tab5UI library are documented here.
 - `UIManager::setSleepTimeout(uint32_t minutes)` / `getSleepTimeout()` — Configurable screen sleep after idle timeout (0 = never). Turns off backlight; touch-to-wake consumes the wake touch.
 - `UIManager::sleep()` / `wake()` / `isScreenAsleep()` — Manual sleep/wake control.
 - `UIManager::setBrightness(uint8_t b)` — Set display brightness (also used as the wake-restore level).
+- `UIManager::setLightSleep(bool)` / `getLightSleep()` — Enable low-power idle when screen is off. Blocks in a GPIO-polling loop watching the GT911 INT pin (GPIO 23, active LOW on touch) with ~20ms latency. Avoids `esp_light_sleep_start()` which powers down I2C on the ESP32-P4, breaking touch.
+- `UIManager::setOnSleep()` / `setOnWake()` — Callbacks fired before sleep and after wake. Use `onWake` to verify or reconnect WiFi, refresh sensor data, etc.
 - `UITabView::getChildCount(int pageIndex)` / `getChild(int pageIndex, int childIndex)` — Accessors for iterating page children.
 - `UITabView::drawTabBar()` — Made public for targeted tab bar redraws during modal close.
 - `UIDropdown::setContentBounds(int16_t top, int16_t bottom)` — Constrain the dropdown list overlay to a custom vertical region.

@@ -92,7 +92,7 @@ You can override the default behaviour by defining `TAB5_RENDER_MODE` **before**
 2. Install the **M5GFX** library via the Arduino Library Manager:
    - *Sketch → Include Library → Manage Libraries → search "M5GFX"*
 
-3. Select board **M5Stack Tab5** (or the appropriate ESP32-S3 board).
+3. Select board **M5Stack Tab5** (or the appropriate ESP32-P4 board).
 
 ### PlatformIO
 
@@ -142,6 +142,7 @@ void setup() {
     ui.setContentArea(TAB5_TITLE_H, Tab5UI::screenH() - TAB5_STATUS_H);
     ui.drawAll();
     ui.setSleepTimeout(5);           // Screen off after 5 min idle
+    ui.setLightSleep(true);          // Low-power idle with touch-to-wake
 }
 
 void loop() {
@@ -912,7 +913,30 @@ bool isScreenAsleep() const;
 void wake();                            // Manually wake
 void sleep();                           // Manually sleep
 void setBrightness(uint8_t b);          // Set brightness (wake level)
+void setLightSleep(bool enable);        // Low-power idle when screen off
+bool getLightSleep() const;
+void setOnSleep(SleepCallback cb);      // Called just before sleeping
+void setOnWake(SleepCallback cb);       // Called after waking up
 ```
+
+**Low-power idle** turns off the backlight (the dominant power draw) and
+blocks `sleep()` in a tight GPIO-polling loop.  The GT911 touch controller
+pulls its INT pin (GPIO 23) LOW on touch, so the loop detects a touch within
+~20 ms without any I2C traffic.  During the `delay()` calls, FreeRTOS yields
+to the idle task, keeping CPU power draw minimal.  The wake touch is consumed
+(not passed to widgets) so it doesn't accidentally press buttons.
+
+```cpp
+ui.setSleepTimeout(5);              // Sleep after 5 min idle
+ui.setLightSleep(true);             // Enable low-power idle + touch wake
+ui.setOnWake([]() {
+    statusBar.setText("Awake!");
+});
+```
+
+> **Note:** Without `setLightSleep(true)`, the screen timeout only turns off
+> the backlight — the CPU continues running `loop()` normally.  This is useful
+> when background tasks (e.g. data logging) must not be interrupted.
 
 ---
 

@@ -358,6 +358,7 @@ void setup() {
     // Initial full draw
     ui.drawAll();
     ui.setSleepTimeout(5);           // Screen off after 5 min idle
+    ui.setLightSleep(true);          // Enter low-power light sleep
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

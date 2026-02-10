@@ -157,6 +157,13 @@ void setup() {
     ui.setContentArea(TAB5_TITLE_H, screenH - TAB5_STATUS_H);
     ui.drawAll();
     ui.setSleepTimeout(5);           // Screen off after 5 min idle
+    ui.setLightSleep(true);          // Enter low-power light sleep
+    ui.setOnWake([]() {
+        // Re-init WiFi after light sleep (connection may have dropped)
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+        statusBar.setText("Woke from sleep");
+    });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
