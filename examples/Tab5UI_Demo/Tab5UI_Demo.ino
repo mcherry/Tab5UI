@@ -114,7 +114,7 @@ void setup() {
     display.init();
     display.setRotation(1);           // Landscape
     Tab5UI::init(display);
-    display.setBrightness(128);
+    ui.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
     // ── Configure Title Bar ──
@@ -357,6 +357,7 @@ void setup() {
 
     // Initial full draw
     ui.drawAll();
+    ui.setSleepTimeout(5);           // Screen off after 5 min idle
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

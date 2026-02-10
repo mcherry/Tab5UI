@@ -1738,6 +1738,14 @@ public:
     int16_t contentHeight() const { return _contentBottom - _contentTop; }
     void setContentArea(int16_t top, int16_t bottom) { _contentTop = top; _contentBottom = bottom; }
 
+    // ── Screen Sleep / Timeout ──
+    void setSleepTimeout(uint32_t minutes);   // 0 = never sleep (default)
+    uint32_t getSleepTimeout() const { return _sleepTimeoutMin; }
+    bool isScreenAsleep() const      { return _screenAsleep; }
+    void wake();                              // Manually wake the screen
+    void sleep();                             // Manually put screen to sleep
+    void setBrightness(uint8_t b);            // Set display brightness (also used as wake brightness)
+
 private:
     M5GFX& _gfx;
     std::vector<UIElement*> _elements;
@@ -1757,6 +1765,12 @@ private:
     // Debounce
     unsigned long _lastTouchTime = 0;
     static constexpr unsigned long TOUCH_DEBOUNCE_MS = 30;
+
+    // Screen sleep
+    uint32_t      _sleepTimeoutMin  = 0;       // 0 = never
+    unsigned long _lastActivityTime = 0;       // millis() of last touch
+    bool          _screenAsleep     = false;
+    uint8_t       _brightness       = 128;     // User-set brightness to restore on wake
 };
 
 #endif // TAB5UI_H

@@ -25,6 +25,9 @@ All notable changes to the Tab5UI library are documented here.
 - **Modal redraw efficiency** — `UIManager::drawDirty()` modal safety pass now only redraws modals that are actually dirty, not unconditionally.
 
 ### API Additions
+- `UIManager::setSleepTimeout(uint32_t minutes)` / `getSleepTimeout()` — Configurable screen sleep after idle timeout (0 = never). Turns off backlight; touch-to-wake consumes the wake touch.
+- `UIManager::sleep()` / `wake()` / `isScreenAsleep()` — Manual sleep/wake control.
+- `UIManager::setBrightness(uint8_t b)` — Set display brightness (also used as the wake-restore level).
 - `UITabView::getChildCount(int pageIndex)` / `getChild(int pageIndex, int childIndex)` — Accessors for iterating page children.
 - `UITabView::drawTabBar()` — Made public for targeted tab bar redraws during modal close.
 - `UIDropdown::setContentBounds(int16_t top, int16_t bottom)` — Constrain the dropdown list overlay to a custom vertical region.

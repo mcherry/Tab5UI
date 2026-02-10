@@ -42,7 +42,7 @@ void setup() {
     display.init();
     display.setRotation(0);                // ◀ Portrait (720 × 1280)
     Tab5UI::init(display);
-    display.setBrightness(128);
+    ui.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
     screenW = Tab5UI::screenW();           // 720
@@ -136,6 +136,7 @@ void setup() {
 
     ui.setContentArea(TAB5_TITLE_H, screenH - TAB5_STATUS_H);
     ui.drawAll();
+    ui.setSleepTimeout(5);           // Screen off after 5 min idle
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

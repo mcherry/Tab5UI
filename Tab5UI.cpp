@@ -4716,11 +4716,43 @@ UIElement* UIManager::findByTag(const char* tag) {
     return nullptr;
 }
 
+void UIManager::setSleepTimeout(uint32_t minutes) {
+    _sleepTimeoutMin = minutes;
+    _lastActivityTime = millis();
+}
+
+void UIManager::setBrightness(uint8_t b) {
+    _brightness = b;
+    if (!_screenAsleep) _gfx.setBrightness(b);
+}
+
+void UIManager::wake() {
+    if (!_screenAsleep) return;
+    _screenAsleep = false;
+    _gfx.setBrightness(_brightness);
+    _lastActivityTime = millis();
+}
+
+void UIManager::sleep() {
+    if (_screenAsleep) return;
+    _screenAsleep = true;
+    _gfx.setBrightness(0);
+}
+
 void UIManager::update() {
     // Lazy-init content bottom from runtime screen height
     if (_contentBottom == 0) _contentBottom = Tab5UI::screenH();
 
     unsigned long now = millis();
+
+    // ── Screen sleep timeout check ──
+    if (_sleepTimeoutMin > 0 && !_screenAsleep) {
+        unsigned long timeoutMs = (unsigned long)_sleepTimeoutMin * 60000UL;
+        if (now - _lastActivityTime >= timeoutMs) {
+            sleep();
+        }
+    }
+
     if (now - _lastTouchTime < TOUCH_DEBOUNCE_MS) return;
 
     // Check if any modal overlay is open (keyboard, menu, or popup) — it gets exclusive touch priority
@@ -4739,6 +4771,19 @@ void UIManager::update() {
     if (count > 0) {
         int16_t tx = (int16_t)tp.x;
         int16_t ty = (int16_t)tp.y;
+
+        // If the screen is asleep, wake it and consume this touch
+        if (_screenAsleep) {
+            wake();
+            _wasTouched = true;   // Suppress until finger lifts
+            _lastTouchX = tx;
+            _lastTouchY = ty;
+            _lastTouchTime = now;
+            return;
+        }
+
+        // Any touch counts as activity for sleep timer
+        _lastActivityTime = now;
 
         if (!_wasTouched) {
             _touchedElem = nullptr;

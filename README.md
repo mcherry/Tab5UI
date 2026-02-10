@@ -127,7 +127,7 @@ void setup() {
     display.init();
     display.setRotation(1);           // Landscape (use 0 for portrait)
     Tab5UI::init(display);            // Must be called after init + rotation
-    display.setBrightness(128);
+    ui.setBrightness(128);
     display.setFont(&fonts::DejaVu18);
 
     btn.setOnTouchRelease([](TouchEvent e) {
@@ -141,11 +141,12 @@ void setup() {
     ui.addElement(&statusBar);
     ui.setContentArea(TAB5_TITLE_H, Tab5UI::screenH() - TAB5_STATUS_H);
     ui.drawAll();
+    ui.setSleepTimeout(5);           // Screen off after 5 min idle
 }
 
 void loop() {
     ui.update();
-    delay(10);
+    yield();
 }
 ```
 
@@ -903,6 +904,14 @@ void drawDirty();         // Only changed elements
 void update();            // Touch + dirty redraw (call in loop)
 UIElement* findByTag(const char* tag);
 void setContentArea(int16_t top, int16_t bottom);
+
+// Screen sleep
+void setSleepTimeout(uint32_t minutes); // 0 = never (default)
+uint32_t getSleepTimeout() const;
+bool isScreenAsleep() const;
+void wake();                            // Manually wake
+void sleep();                           // Manually sleep
+void setBrightness(uint8_t b);          // Set brightness (wake level)
 ```
 
 ---
