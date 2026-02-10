@@ -2,7 +2,7 @@
 
 All notable changes to the Tab5UI library are documented here.
 
-## [1.1.0] — 2025-07-09
+## [1.1.0] — 2026-02-10
 
 ### New Widgets
 - **UIIconButton** — Button that displays a 32×32 PROGMEM PNG icon with text fallback; same styling and touch behavior as UIButton.
@@ -38,7 +38,7 @@ All notable changes to the Tab5UI library are documented here.
 - Renamed internal `_min` / `_max` members to `_minVal` / `_maxVal` to avoid conflicts with Arduino's `_min` / `_max` macros.
 - PROGMEM icon set: 55 ready-to-use 32×32 PNG icon headers converted from IconPark (Apache 2.0), with attribution README and license.
 
-## [1.0.0] — 2025-06-01
+## [1.0.0] — 2026-02-06
 
 ### Initial Release
 - Core widgets: UILabel, UIButton, UITitleBar, UIStatusBar, UITextRow, UIIconSquare, UIIconCircle, UIMenu, UIKeyboard, UITextInput, UIList, UITabView, UIInfoPopup, UIConfirmPopup, UIScrollText, UICheckbox, UIRadioButton, UIRadioGroup, UIDropdown, UITextArea.
