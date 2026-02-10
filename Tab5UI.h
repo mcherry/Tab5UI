@@ -27,6 +27,16 @@ namespace Tab5UI {
     int16_t  screenH();                   // Current screen height
 }
 
+// ─── Rendering Mode ─────────────────────────────────────────────────────────
+// Controls how scrollable widgets render their content.
+// Define TAB5_RENDER_MODE *before* including Tab5UI.h, or edit the default here.
+//   0 = Auto   — use sprite buffering when PSRAM is available (default)
+//   1 = Sprite — always use sprite buffering (fails visibly if no PSRAM)
+//   2 = Direct — always draw directly to display (may flicker on scroll)
+#ifndef TAB5_RENDER_MODE
+#define TAB5_RENDER_MODE 0
+#endif
+
 // ─── Default Screen Constants (landscape 1280×720) ─────────────────────────
 #define TAB5_SCREEN_W   1280
 #define TAB5_SCREEN_H   720
@@ -110,7 +120,7 @@ public:
     virtual ~UIElement() = default;
 
     // ── Drawing ──
-    virtual void draw(M5GFX& gfx) = 0;
+    virtual void draw(LovyanGFX& gfx) = 0;
 
     // ── Geometry ──
     void setPosition(int16_t x, int16_t y);
@@ -173,7 +183,7 @@ public:
             uint32_t textColor = Tab5Theme::TEXT_PRIMARY,
             float textSize = TAB5_FONT_SIZE_MD);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
 
     void setText(const char* text);
     const char* getText() const { return _text; }
@@ -204,7 +214,7 @@ public:
              uint32_t textColor = Tab5Theme::TEXT_PRIMARY,
              float textSize     = TAB5_FONT_SIZE_MD);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -251,7 +261,7 @@ public:
                  uint32_t textColor = Tab5Theme::TEXT_PRIMARY,
                  float textSize     = TAB5_FONT_SIZE_MD);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -300,7 +310,7 @@ public:
              uint32_t fillColor   = Tab5Theme::PRIMARY,
              uint32_t thumbColor  = Tab5Theme::TEXT_PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -355,7 +365,7 @@ public:
                uint32_t bgColor   = Tab5Theme::TITLE_BG,
                uint32_t textColor = Tab5Theme::TEXT_PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
 
     void setTitle(const char* title);
     const char* getTitle() const { return _title; }
@@ -400,7 +410,7 @@ public:
                 uint32_t bgColor   = Tab5Theme::STATUS_BG,
                 uint32_t textColor = Tab5Theme::TEXT_SECONDARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
 
     void setText(const char* text);
     void setLeftText(const char* text);
@@ -432,7 +442,7 @@ public:
               uint32_t labelColor = Tab5Theme::TEXT_PRIMARY,
               uint32_t valueColor = Tab5Theme::TEXT_SECONDARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
 
     void setLabel(const char* label);
     void setValue(const char* value);
@@ -462,7 +472,7 @@ public:
                  uint32_t fillColor   = Tab5Theme::PRIMARY,
                  uint32_t borderColor = Tab5Theme::BORDER);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -492,7 +502,7 @@ public:
                  uint32_t fillColor   = Tab5Theme::SECONDARY,
                  uint32_t borderColor = Tab5Theme::BORDER);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -552,7 +562,7 @@ public:
            uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
            uint32_t hlColor    = Tab5Theme::PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -632,7 +642,7 @@ class UIKeyboard : public UIElement {
 public:
     UIKeyboard();
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -716,7 +726,7 @@ public:
                 uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
                 uint32_t borderColor = Tab5Theme::BORDER);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -817,7 +827,7 @@ public:
               uint32_t activeColor = Tab5Theme::PRIMARY,
               uint32_t textColor   = Tab5Theme::TEXT_PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -863,6 +873,18 @@ public:
     void setBorderColor(uint32_t c)     { _borderColor = c; _dirty = true; }
     void setTabBarHeight(int16_t h)     { _tabBarH = h; _dirty = true; }
 
+    // ── Child access ──
+    int getChildCount(int pageIndex) const {
+        if (pageIndex < 0 || pageIndex >= _pageCount) return 0;
+        return _pages[pageIndex].childCount;
+    }
+    UIElement* getChild(int pageIndex, int childIndex) const {
+        if (pageIndex < 0 || pageIndex >= _pageCount) return nullptr;
+        const UITabPage& page = _pages[pageIndex];
+        if (childIndex < 0 || childIndex >= page.childCount) return nullptr;
+        return page.children[childIndex];
+    }
+
     // ── Content area geometry (for positioning children) ──
     int16_t contentX() const { return _x; }
     int16_t contentY() const;
@@ -872,7 +894,9 @@ public:
     // Check if any child on the active page is dirty (used by UIManager)
     bool hasActiveDirtyChild() const;
     // Redraw only dirty children (no background clear, no tab bar redraw)
-    void drawDirtyChildren(M5GFX& gfx);
+    void drawDirtyChildren(LovyanGFX& gfx);
+    // Redraw only the tab bar (cheap, no content area clear)
+    void drawTabBar(LovyanGFX& gfx);
 
 private:
     UITabPage _pages[TAB5_TAB_MAX_PAGES];
@@ -898,8 +922,6 @@ private:
     bool hitTestTabBar(int16_t tx, int16_t ty) const;
     // Returns the page index under (tx,ty) in the tab bar, or -1
     int  tabIndexAt(int16_t tx, int16_t ty) const;
-    // Draw the tab bar
-    void drawTabBar(M5GFX& gfx);
     // Get the tab bar Y position
     int16_t tabBarY() const;
 };
@@ -908,7 +930,7 @@ private:
  * UIInfoPopup — Modal popup window with title, message, and OK button
  *
  * Usage:
- *   UIInfoPopup popup("About", "My App v1.0");
+ *   UIInfoPopup popup("About", "My App v1.1");
  *   popup.show();                       // display centered on screen
  *   ui.addElement(&popup);              // add last so it draws on top
  *
@@ -919,7 +941,7 @@ public:
     UIInfoPopup(const char* title = "Info",
                 const char* message = "");
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -966,9 +988,9 @@ private:
     bool hitTestBtn(int16_t tx, int16_t ty) const;
 
     // Auto-size the popup based on text content
-    void autoSize(M5GFX& gfx);
+    void autoSize(LovyanGFX& gfx);
     // Word-wrap helper: returns number of lines, fills lineStarts/lineLengths
-    static int wordWrap(M5GFX& gfx, const char* text, float textSize,
+    static int wordWrap(LovyanGFX& gfx, const char* text, float textSize,
                         int16_t maxWidth, int16_t* lineStarts,
                         int16_t* lineLengths, int maxLines);
 };
@@ -1002,7 +1024,7 @@ public:
     UIConfirmPopup(const char* title = "Confirm",
                    const char* message = "");
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -1060,9 +1082,9 @@ private:
     bool hitTestNoBtn(int16_t tx, int16_t ty) const;
 
     // Auto-size the popup based on text content
-    void autoSize(M5GFX& gfx);
+    void autoSize(LovyanGFX& gfx);
     // Re-use UIInfoPopup's word-wrap (same signature)
-    static int wordWrap(M5GFX& gfx, const char* text, float textSize,
+    static int wordWrap(LovyanGFX& gfx, const char* text, float textSize,
                         int16_t maxWidth, int16_t* lineStarts,
                         int16_t* lineLengths, int maxLines);
 };
@@ -1112,7 +1134,7 @@ public:
                  uint32_t bgColor   = Tab5Theme::BG_MEDIUM,
                  uint32_t textColor = Tab5Theme::TEXT_PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -1177,14 +1199,14 @@ private:
     int16_t  totalContentHeight() const;
     int16_t  maxScroll() const;
     void     clampScroll();
-    void     reflow(M5GFX& gfx);
+    void     reflow(LovyanGFX& gfx);
 
     // Draw a single line with inline markdown spans (**bold**, *italic*, `code`)
-    void     drawMarkdownLine(M5GFX& gfx, const char* text, int len,
+    void     drawMarkdownLine(LovyanGFX& gfx, const char* text, int len,
                               int16_t x, int16_t y, float textSize,
                               uint32_t defaultColor);
     // Measure width of a markdown line (accounting for stripped markers)
-    int16_t  markdownTextWidth(M5GFX& gfx, const char* text, int len,
+    int16_t  markdownTextWidth(LovyanGFX& gfx, const char* text, int len,
                                float textSize);
 };
 
@@ -1235,7 +1257,7 @@ public:
            uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
            uint32_t selectColor = Tab5Theme::PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -1324,7 +1346,7 @@ public:
                uint32_t textColor  = Tab5Theme::TEXT_PRIMARY,
                float textSize      = TAB5_FONT_SIZE_MD);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -1392,7 +1414,7 @@ public:
                   uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
                   float textSize       = TAB5_FONT_SIZE_MD);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
 
@@ -1451,7 +1473,7 @@ public:
                uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
                uint32_t selectColor = Tab5Theme::PRIMARY);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -1503,6 +1525,13 @@ public:
     void setTextSize(float s)          { _textSize = s; _dirty = true; }
     void setMaxVisibleItems(int n)     { _maxVisible = n; _dirty = true; }
 
+    /// Constrain the dropdown list to stay within the given vertical bounds.
+    /// Typically set to the TabView's content area so the list doesn't
+    /// overlap title/status bars.
+    void setContentBounds(int16_t top, int16_t bottom) {
+        _boundsTop = top; _boundsBottom = bottom;
+    }
+
 private:
     UIListItem _items[TAB5_LIST_MAX_ITEMS];
     int        _itemCount      = 0;
@@ -1532,6 +1561,14 @@ private:
     bool     _wasDrag       = false;
     bool     _btnPressed    = false;   // Collapsed button press state
     static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    // Content bounds for list clipping (0 = use full screen)
+    int16_t  _boundsTop    = 0;
+    int16_t  _boundsBottom = 0;
+
+    // Deferred list-area erase (set by close(), executed by draw())
+    bool     _needsListErase = false;
+    int16_t  _eraseX = 0, _eraseY = 0, _eraseW = 0, _eraseH = 0;
 
     int16_t  totalContentHeight() const { return _itemCount * _itemH; }
     int16_t  maxScroll() const;
@@ -1573,7 +1610,7 @@ public:
                uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
                uint32_t borderColor = Tab5Theme::BORDER);
 
-    void draw(M5GFX& gfx) override;
+    void draw(LovyanGFX& gfx) override;
     void handleTouchDown(int16_t tx, int16_t ty) override;
     void handleTouchMove(int16_t tx, int16_t ty) override;
     void handleTouchUp(int16_t tx, int16_t ty) override;
@@ -1660,9 +1697,9 @@ private:
     int16_t  totalContentHeight() const;
     int16_t  maxScroll() const;
     void     clampScroll();
-    void     reflow(M5GFX& gfx);
+    void     reflow(LovyanGFX& gfx);
     void     onKeyPress(char ch);
-    int      cursorFromTouch(M5GFX& gfx, int16_t tx, int16_t ty);
+    int      cursorFromTouch(LovyanGFX& gfx, int16_t tx, int16_t ty);
     void     ensureCursorVisible();
 };
 

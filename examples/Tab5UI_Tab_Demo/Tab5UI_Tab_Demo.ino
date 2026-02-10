@@ -537,7 +537,7 @@ void setup() {
 
     // ── Style tweaks ────────────────────────────────────────────────────────
     titleBar.setLeftText("< Back");
-    titleBar.setRightText("v1.0");
+    titleBar.setRightText("v1.1");
     statusBar.setLeftText("Tab5");
     statusBar.setRightText("Tab Demo");
 
@@ -565,5 +565,5 @@ void setup() {
 // ═════════════════════════════════════════════════════════════════════════════
 void loop() {
     ui.update();
-    delay(10);
+    yield();
 }

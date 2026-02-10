@@ -1,6 +1,6 @@
 {
   "name": "Tab5UI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Touchscreen UI widget library for M5Stack Tab5 (1280x720). Built on M5GFX.",
   "keywords": ["m5stack", "tab5", "ui", "gui", "touch", "M5GFX", "display"],
   "repository": {

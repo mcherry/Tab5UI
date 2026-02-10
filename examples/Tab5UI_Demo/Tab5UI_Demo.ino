@@ -60,7 +60,7 @@ UIButton    btnLarge(700, 60, 560, 56,
                      "Large Button", Tab5Theme::SURFACE);
 
 UILabel     infoLabel(700, 130, 560, TAB5_LABEL_H,
-                      "Tab5UI Library v1.0");
+                      "Tab5UI Library v1.1");
 
 UITextRow   row4(700, 170, 560, "Display", "1280x720");
 UITextRow   row5(700, 210, 560, "Touch", "Capacitive");
@@ -307,7 +307,7 @@ void setup() {
 
     // ── Status bar config ──
     statusBar.setLeftText("Tab5");
-    statusBar.setRightText("v1.0");
+    statusBar.setRightText("v1.1");
 
     // ── Register all elements with the UI manager ──
     // (draw order = registration order; touch checks in reverse)
@@ -366,6 +366,6 @@ void loop() {
     // Process touch events and redraw dirty elements
     ui.update();
 
-    // Small delay to prevent tight-loop CPU hogging
-    delay(10);
+    // yield to RTOS (watchdog, WiFi, etc.) without blocking
+    yield();
 }

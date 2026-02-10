@@ -40,6 +40,62 @@ static inline uint32_t darken(uint32_t c, uint8_t amount = 40) {
     return (uint32_t)((r << 16) | (g << 8) | b);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Shared off-screen sprite for flicker-free drawing
+// ─────────────────────────────────────────────────────────────────────────────
+// A single M5Canvas is lazily allocated in PSRAM and reused by any widget
+// that needs double-buffered rendering.  The sprite is resized on demand.
+// Using a shared sprite avoids allocating/freeing memory every frame.
+static M5Canvas* _sharedSprite = nullptr;
+static int16_t   _spriteW = 0;
+static int16_t   _spriteH = 0;
+
+// Acquire the shared sprite sized to at least (w × h).
+// Returns nullptr if PSRAM allocation fails (caller should fall back to
+// direct drawing in that case).
+static M5Canvas* acquireSprite(LovyanGFX* parent, int16_t w, int16_t h) {
+    // TAB5_RENDER_MODE: 0=auto, 1=sprite always, 2=direct always
+#if TAB5_RENDER_MODE == 2
+    // Force direct rendering — skip sprite entirely
+    (void)parent; (void)w; (void)h;
+    return nullptr;
+#else
+    // Cap at full-screen size (1280×720 = 921600 px ≈ 1.8 MB at 16bpp).
+    // In sprite-forced mode (1), skip the cap — the user knows their budget.
+#if TAB5_RENDER_MODE != 1
+    if ((int32_t)w * h > 921600L) return nullptr;
+#endif
+
+    if (!_sharedSprite) {
+        _sharedSprite = new (std::nothrow) M5Canvas(parent);
+        if (!_sharedSprite) return nullptr;
+        _sharedSprite->setColorDepth(16);  // RGB565 — 2 bytes per pixel
+        _sharedSprite->setPsram(true);     // Allocate buffer in PSRAM
+    } else {
+        _sharedSprite->setColorDepth(16);
+    }
+
+    // Resize if needed (createSprite frees previous buffer internally)
+    if (w != _spriteW || h != _spriteH) {
+        _sharedSprite->deleteSprite();
+        if (!_sharedSprite->createSprite(w, h)) {
+            _spriteW = 0;
+            _spriteH = 0;
+            return nullptr;  // Allocation failed
+        }
+        _spriteW = w;
+        _spriteH = h;
+    }
+
+    // Inherit the font from the parent display so text renders at the
+    // correct size.  M5Canvas starts with the tiny default built-in font;
+    // without this, all sprite-rendered text appears much smaller.
+    _sharedSprite->setFont(parent->getFont());
+
+    return _sharedSprite;
+#endif  // TAB5_RENDER_MODE != 2
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  UIElement — Base class
 // ═════════════════════════════════════════════════════════════════════════════
@@ -96,13 +152,14 @@ void UILabel::setText(const char* text) {
     _dirty = true;
 }
 
-void UILabel::draw(M5GFX& gfx) {
+void UILabel::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
-    // Background
-    if (_hasBg) {
-        gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
-    }
+    // Always clear the label area first to prevent old text from showing
+    // through when the label text changes.  Use the explicit background
+    // color when set, otherwise the default dark background.
+    gfx.fillRect(_x, _y, _w, _h,
+                 rgb888(_hasBg ? _bgColor : Tab5Theme::BG_DARK));
 
     // Text
     gfx.setTextSize(_textSize);
@@ -145,7 +202,7 @@ void UIButton::setLabel(const char* label) {
     _dirty = true;
 }
 
-void UIButton::draw(M5GFX& gfx) {
+void UIButton::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     uint32_t bg = _pressed ? rgb888(_pressedColor) : rgb888(_bgColor);
@@ -214,7 +271,7 @@ void UIIconButton::setLabel(const char* label) {
     _dirty = true;
 }
 
-void UIIconButton::draw(M5GFX& gfx) {
+void UIIconButton::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     uint32_t bg = _pressed ? rgb888(_pressedColor) : rgb888(_bgColor);
@@ -331,39 +388,45 @@ void UISlider::_updateFromTouch(int16_t tx) {
     }
 }
 
-void UISlider::draw(M5GFX& gfx) {
+void UISlider::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
+    // ── Try sprite-buffered rendering for flicker-free drag ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
     // Clear background area
-    gfx.fillRect(_x, _y, _w, _h, rgb888(Tab5Theme::BG_DARK));
+    dst.fillRect(ox, oy, _w, _h, rgb888(Tab5Theme::BG_DARK));
 
     // Optional label (drawn in top portion of the widget area)
     int16_t labelOffset = 0;
     if (_showLabel && _label[0] != '\0') {
         labelOffset = 22;
-        gfx.setTextSize(TAB5_FONT_SIZE_SM);
-        gfx.setTextDatum(textdatum_t::top_left);
-        gfx.setTextColor(rgb888(Tab5Theme::TEXT_SECONDARY));
-        gfx.drawString(_label, _x, _y);
+        dst.setTextSize(TAB5_FONT_SIZE_SM);
+        dst.setTextDatum(textdatum_t::top_left);
+        dst.setTextColor(rgb888(Tab5Theme::TEXT_SECONDARY));
+        dst.drawString(_label, ox, oy);
     }
 
-    int16_t trackLeft  = _x + _thumbR;
-    int16_t trackRight = _x + _w - _thumbR;
+    int16_t trackLeft  = ox + _thumbR;
+    int16_t trackRight = ox + _w - _thumbR;
     int16_t trackW     = trackRight - trackLeft;
-    int16_t sliderCenterY = _y + labelOffset + (_h - labelOffset) / 2;
+    int16_t sliderCenterY = oy + labelOffset + (_h - labelOffset) / 2;
     int16_t trackY     = sliderCenterY - _trackH / 2;
 
     // Value label area (takes ~40px from right if enabled)
     int16_t labelW = 0;
     if (_showValue) {
         labelW = 50;
-        trackRight = _x + _w - _thumbR - labelW;
+        trackRight = ox + _w - _thumbR - labelW;
         trackW = trackRight - trackLeft;
     }
 
     // Draw background track (full width, rounded)
     int16_t trackR = _trackH / 2;
-    gfx.fillSmoothRoundRect(trackLeft, trackY, trackW, _trackH, trackR,
+    dst.fillSmoothRoundRect(trackLeft, trackY, trackW, _trackH, trackR,
                             rgb888(_trackColor));
 
     // Calculate thumb position
@@ -376,25 +439,30 @@ void UISlider::draw(M5GFX& gfx) {
     // Draw filled portion (left of thumb)
     if (thumbX > trackLeft) {
         int16_t fillW = thumbX - trackLeft;
-        gfx.fillSmoothRoundRect(trackLeft, trackY, fillW, _trackH, trackR,
+        dst.fillSmoothRoundRect(trackLeft, trackY, fillW, _trackH, trackR,
                                 rgb888(_fillColor));
     }
 
     // Draw thumb circle
     uint32_t tc = _dragging ? rgb888(darken(_thumbColor)) : rgb888(_thumbColor);
-    gfx.fillSmoothCircle(thumbX, sliderCenterY, _thumbR, tc);
+    dst.fillSmoothCircle(thumbX, sliderCenterY, _thumbR, tc);
 
     // Optional border on thumb
-    gfx.drawCircle(thumbX, sliderCenterY, _thumbR, rgb888(darken(_fillColor)));
+    dst.drawCircle(thumbX, sliderCenterY, _thumbR, rgb888(darken(_fillColor)));
 
     // Value text
     if (_showValue) {
         char buf[12];
         snprintf(buf, sizeof(buf), "%d", _value);
-        gfx.setTextSize(TAB5_FONT_SIZE_SM);
-        gfx.setTextDatum(textdatum_t::middle_left);
-        gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
-        gfx.drawString(buf, _x + _w - labelW + 8, sliderCenterY);
+        dst.setTextSize(TAB5_FONT_SIZE_SM);
+        dst.setTextDatum(textdatum_t::middle_left);
+        dst.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+        dst.drawString(buf, ox + _w - labelW + 8, sliderCenterY);
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -456,7 +524,7 @@ void UITitleBar::setRightText(const char* text) {
     _dirty = true;
 }
 
-void UITitleBar::draw(M5GFX& gfx) {
+void UITitleBar::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Auto-adjust width to match runtime screen width
@@ -569,7 +637,7 @@ void UIStatusBar::setRightText(const char* text) {
     _dirty = true;
 }
 
-void UIStatusBar::draw(M5GFX& gfx) {
+void UIStatusBar::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Auto-adjust position and width for runtime screen dimensions
@@ -636,7 +704,7 @@ void UITextRow::setValue(const char* value) {
     _dirty = true;
 }
 
-void UITextRow::draw(M5GFX& gfx) {
+void UITextRow::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Background
@@ -677,7 +745,7 @@ UIIconSquare::UIIconSquare(int16_t x, int16_t y, int16_t size,
     , _pressedColor(darken(fillColor))
 {}
 
-void UIIconSquare::draw(M5GFX& gfx) {
+void UIIconSquare::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     uint32_t fc = _pressed ? rgb888(_pressedColor) : rgb888(_fillColor);
@@ -736,7 +804,7 @@ bool UIIconCircle::hitTestCircle(int16_t tx, int16_t ty) const {
     return (dx * dx + dy * dy) <= (_circRadius * _circRadius);
 }
 
-void UIIconCircle::draw(M5GFX& gfx) {
+void UIIconCircle::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     int16_t cx = _x + _circRadius;
@@ -875,27 +943,38 @@ int UIMenu::itemIndexAt(int16_t tx, int16_t ty) const {
     return -1;
 }
 
-void UIMenu::draw(M5GFX& gfx) {
+void UIMenu::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
+    // Sprite covers menu + shadow (shadow offset +3,+3)
+    int16_t sprW = _w + 3;
+    int16_t sprH = _h + 3;
+    M5Canvas* spr = acquireSprite(&gfx, sprW, sprH);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
+    // Clear sprite background
+    if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
+
     // Shadow (offset dark rect)
-    gfx.fillRect(_x + 3, _y + 3, _w, _h, rgb888(0x0A0A14));
+    dst.fillRect(ox + 3, oy + 3, _w, _h, rgb888(0x0A0A14));
 
     // Background
-    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 6, rgb888(_bgColor));
+    dst.fillSmoothRoundRect(ox, oy, _w, _h, 6, rgb888(_bgColor));
 
     // Border
-    gfx.drawRoundRect(_x, _y, _w, _h, 6, rgb888(_borderColor));
+    dst.drawRoundRect(ox, oy, _w, _h, 6, rgb888(_borderColor));
 
     // Items
-    int16_t yOff = _y + TAB5_PADDING;
+    int16_t yOff = oy + TAB5_PADDING;
     for (int i = 0; i < _itemCount; ++i) {
         const UIMenuItem& item = _items[i];
 
         if (item.separator) {
             // Horizontal divider
             int16_t lineY = yOff + TAB5_PADDING / 2;
-            gfx.drawFastHLine(_x + TAB5_PADDING, lineY,
+            dst.drawFastHLine(ox + TAB5_PADDING, lineY,
                               _w - TAB5_PADDING * 2,
                               rgb888(Tab5Theme::DIVIDER));
             yOff += TAB5_PADDING + 1;
@@ -904,13 +983,13 @@ void UIMenu::draw(M5GFX& gfx) {
 
         // Highlight for pressed item
         if (i == _pressedIndex && item.enabled) {
-            gfx.fillRect(_x + 2, yOff, _w - 4, TAB5_MENU_ITEM_H,
+            dst.fillRect(ox + 2, yOff, _w - 4, TAB5_MENU_ITEM_H,
                          rgb888(_hlColor));
         }
 
         // Label
-        gfx.setTextSize(TAB5_FONT_SIZE_MD);
-        gfx.setTextDatum(textdatum_t::middle_left);
+        dst.setTextSize(TAB5_FONT_SIZE_MD);
+        dst.setTextDatum(textdatum_t::middle_left);
 
         uint32_t tc = item.enabled
                     ? rgb888(_textColor)
@@ -919,10 +998,15 @@ void UIMenu::draw(M5GFX& gfx) {
         if (i == _pressedIndex && item.enabled) {
             tc = rgb888(Tab5Theme::TEXT_PRIMARY);
         }
-        gfx.setTextColor(tc);
-        gfx.drawString(item.label, _x + TAB5_PADDING, yOff + TAB5_MENU_ITEM_H / 2);
+        dst.setTextColor(tc);
+        dst.drawString(item.label, ox + TAB5_PADDING, yOff + TAB5_MENU_ITEM_H / 2);
 
         yOff += TAB5_MENU_ITEM_H;
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -1157,19 +1241,27 @@ bool UIKeyboard::keyAt(int16_t tx, int16_t ty, int& row, int& col) const {
     return false;
 }
 
-void UIKeyboard::draw(M5GFX& gfx) {
+void UIKeyboard::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
+    // ── Try sprite-buffered rendering for flicker-free key presses ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
     // Background panel
-    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    dst.fillRect(ox, oy, _w, _h, rgb888(_bgColor));
     // Top border
-    gfx.drawFastHLine(_x, _y, _w, rgb888(Tab5Theme::BORDER));
+    dst.drawFastHLine(ox, oy, _w, rgb888(Tab5Theme::BORDER));
 
     // Draw each key
     for (int r = 0; r < TAB5_KB_ROWS; ++r) {
         for (int c = 0; c < _cols[r]; ++c) {
             int16_t kx, ky, kw, kh;
             keyRect(r, c, kx, ky, kw, kh);
+            // Offset into sprite coordinates
+            if (spr) { kx -= _x; ky -= _y; }
 
             const UIKey& key = _keys[r][c];
             bool isPressed = (r == _pressedRow && c == _pressedCol);
@@ -1178,14 +1270,19 @@ void UIKeyboard::draw(M5GFX& gfx) {
                         ? rgb888(darken(key.bgColor, 30))
                         : rgb888(key.bgColor);
 
-            gfx.fillSmoothRoundRect(kx, ky, kw, kh, 4, bg);
+            dst.fillSmoothRoundRect(kx, ky, kw, kh, 4, bg);
 
             // Key label
-            gfx.setTextSize(TAB5_FONT_SIZE_MD);
-            gfx.setTextDatum(textdatum_t::middle_center);
-            gfx.setTextColor(rgb888(_textColor));
-            gfx.drawString(key.label, kx + kw / 2, ky + kh / 2);
+            dst.setTextSize(TAB5_FONT_SIZE_MD);
+            dst.setTextDatum(textdatum_t::middle_center);
+            dst.setTextColor(rgb888(_textColor));
+            dst.drawString(key.label, kx + kw / 2, ky + kh / 2);
         }
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -1328,7 +1425,7 @@ void UITextInput::onKeyPress(char ch) {
     }
 }
 
-void UITextInput::draw(M5GFX& gfx) {
+void UITextInput::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Background
@@ -1504,7 +1601,7 @@ bool UITabView::hasActiveDirtyChild() const {
     return false;
 }
 
-void UITabView::drawDirtyChildren(M5GFX& gfx) {
+void UITabView::drawDirtyChildren(LovyanGFX& gfx) {
     if (!_visible || _activePage < 0 || _activePage >= _pageCount) return;
 
     int16_t cy = contentY();
@@ -1536,7 +1633,7 @@ int UITabView::tabIndexAt(int16_t tx, int16_t ty) const {
     return idx;
 }
 
-void UITabView::drawTabBar(M5GFX& gfx) {
+void UITabView::drawTabBar(LovyanGFX& gfx) {
     int16_t barY = tabBarY();
 
     // Tab bar background
@@ -1586,7 +1683,7 @@ void UITabView::drawTabBar(M5GFX& gfx) {
     }
 }
 
-void UITabView::draw(M5GFX& gfx) {
+void UITabView::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Fill the content area background
@@ -1671,8 +1768,11 @@ void UITabView::handleTouchDown(int16_t tx, int16_t ty) {
 void UITabView::handleTouchMove(int16_t tx, int16_t ty) {
     if (_touchedChild) {
         _touchedChild->handleTouchMove(tx, ty);
-        // If the child is dirty, the tab view is dirty too
-        if (_touchedChild->isDirty()) _dirty = true;
+        // NOTE: Do NOT propagate child dirty → TabView dirty here.
+        // UIManager::drawDirty() already handles dirty children via
+        // drawDirtyChildren(), which skips the background clear.
+        // Propagating would force UITabView::draw() with its fillRect,
+        // causing a visible flash between the clear and the sprite push.
     }
 }
 
@@ -1682,10 +1782,23 @@ void UITabView::handleTouchUp(int16_t tx, int16_t ty) {
         bool wasModal = (_touchedChild->isMenu() || _touchedChild->isPopup())
                       && _touchedChild->isVisible();
         _touchedChild->handleTouchUp(tx, ty);
-        if (_touchedChild->isDirty()) _dirty = true;
-        // If a modal overlay just closed, force full redraw to clean up
+
+        // If a modal child just closed (isMenu/isPopup went from true→false),
+        // mark overlapping siblings dirty so they repaint over the stale
+        // overlay area.  Do NOT mark the TabView itself dirty — that triggers
+        // UITabView::draw() with its full-content fillRect flash.  The
+        // closing widget is responsible for erasing its own overlay footprint
+        // (see UIDropdown::draw() _needsListErase path).
         if (wasModal && !_touchedChild->isMenu() && !_touchedChild->isPopup()) {
-            _dirty = true;
+            if (_activePage >= 0 && _activePage < _pageCount) {
+                UITabPage& page = _pages[_activePage];
+                for (int i = 0; i < page.childCount; i++) {
+                    UIElement* sibling = page.children[i];
+                    if (sibling && sibling != _touchedChild && sibling->isVisible()) {
+                        sibling->setDirty(true);
+                    }
+                }
+            }
         }
         _touchedChild = nullptr;
     }
@@ -1755,7 +1868,7 @@ bool UIInfoPopup::hitTestBtn(int16_t tx, int16_t ty) const {
 // Returns the number of lines produced.  lineStarts[] receives the byte
 // offset of each line inside `text`, lineLengths[] the byte length of that
 // line (excluding the trailing space that caused the wrap).
-int UIInfoPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
+int UIInfoPopup::wordWrap(LovyanGFX& gfx, const char* text, float textSize,
                           int16_t maxWidth, int16_t* lineStarts,
                           int16_t* lineLengths, int maxLines)
 {
@@ -1825,7 +1938,7 @@ int UIInfoPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
 }
 
 // ── Auto-size popup based on text content ───────────────────────────────────
-void UIInfoPopup::autoSize(M5GFX& gfx) {
+void UIInfoPopup::autoSize(LovyanGFX& gfx) {
     const int16_t hPad        = TAB5_PADDING * 2;    // left + right padding
     const int16_t vPad        = TAB5_PADDING;         // top/bottom padding
     const int16_t titleGap    = 42;                    // title text + divider
@@ -1894,7 +2007,7 @@ void UIInfoPopup::autoSize(M5GFX& gfx) {
     _needsAutoSize = false;
 }
 
-void UIInfoPopup::draw(M5GFX& gfx) {
+void UIInfoPopup::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Auto-size on first draw or after content change
@@ -1902,37 +2015,48 @@ void UIInfoPopup::draw(M5GFX& gfx) {
         autoSize(gfx);
     }
 
+    // Sprite covers popup + shadow (shadow is offset +4,+4)
+    int16_t sprW = _w + 4;
+    int16_t sprH = _h + 4;
+    M5Canvas* spr = acquireSprite(&gfx, sprW, sprH);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
+    // Clear sprite background (transparent area around popup)
+    if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
+
     // Shadow
-    gfx.fillRect(_x + 4, _y + 4, _w, _h, rgb888(0x0A0A14));
+    dst.fillRect(ox + 4, oy + 4, _w, _h, rgb888(0x0A0A14));
 
     // Background
-    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 8, rgb888(_bgColor));
+    dst.fillSmoothRoundRect(ox, oy, _w, _h, 8, rgb888(_bgColor));
 
     // Border
-    gfx.drawRoundRect(_x, _y, _w, _h, 8, rgb888(_borderColor));
+    dst.drawRoundRect(ox, oy, _w, _h, 8, rgb888(_borderColor));
 
     // Title
-    gfx.setTextSize(TAB5_FONT_SIZE_LG);
-    gfx.setTextDatum(textdatum_t::top_center);
-    gfx.setTextColor(rgb888(_titleColor));
-    gfx.drawString(_title, _x + _w / 2, _y + TAB5_PADDING + 4);
+    dst.setTextSize(TAB5_FONT_SIZE_LG);
+    dst.setTextDatum(textdatum_t::top_center);
+    dst.setTextColor(rgb888(_titleColor));
+    dst.drawString(_title, ox + _w / 2, oy + TAB5_PADDING + 4);
 
     // Divider below title
-    int16_t divY = _y + TAB5_PADDING + 38;
-    gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+    int16_t divY = oy + TAB5_PADDING + 38;
+    dst.drawFastHLine(ox + TAB5_PADDING, divY,
                       _w - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
 
     // Message — word-wrapped
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    gfx.setTextDatum(textdatum_t::top_center);
-    gfx.setTextColor(rgb888(_textColor));
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextDatum(textdatum_t::top_center);
+    dst.setTextColor(rgb888(_textColor));
 
     int16_t contentW = _w - TAB5_PADDING * 2 - 10;
     int16_t lineStarts[32], lineLengths[32];
-    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+    int numLines = wordWrap(dst, _message, TAB5_FONT_SIZE_MD,
                             contentW, lineStarts, lineLengths, 32);
 
-    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+    int16_t lineH = (int16_t)(dst.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
     int16_t msgStartY = divY + 14;
 
     char lineBuf[257];
@@ -1943,24 +2067,31 @@ void UIInfoPopup::draw(M5GFX& gfx) {
         // Trim trailing spaces
         while (len > 0 && lineBuf[len - 1] == ' ') len--;
         lineBuf[len] = '\0';
-        gfx.drawString(lineBuf, _x + _w / 2, msgStartY + i * lineH);
+        dst.drawString(lineBuf, ox + _w / 2, msgStartY + i * lineH);
     }
 
     // OK button (centered at bottom)
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    _btnW = gfx.textWidth(_btnLabel) + 60;
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    _btnW = dst.textWidth(_btnLabel) + 60;
     if (_btnW < 100) _btnW = 100;
     _btnH = 40;
     _btnX = _x + (_w - _btnW) / 2;
     _btnY = _y + _h - _btnH - TAB5_PADDING;
+    int16_t btnOx = spr ? (_btnX - _x) : _btnX;
+    int16_t btnOy = spr ? (_btnY - _y) : _btnY;
 
     uint32_t btnBg = _btnPressed ? rgb888(darken(_btnColor)) : rgb888(_btnColor);
-    gfx.fillSmoothRoundRect(_btnX, _btnY, _btnW, _btnH, 6, btnBg);
+    dst.fillSmoothRoundRect(btnOx, btnOy, _btnW, _btnH, 6, btnBg);
 
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    gfx.setTextDatum(textdatum_t::middle_center);
-    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
-    gfx.drawString(_btnLabel, _btnX + _btnW / 2, _btnY + _btnH / 2);
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextDatum(textdatum_t::middle_center);
+    dst.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    dst.drawString(_btnLabel, btnOx + _btnW / 2, btnOy + _btnH / 2);
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
+    }
 
     _dirty = false;
 }
@@ -2069,7 +2200,7 @@ bool UIConfirmPopup::hitTestNoBtn(int16_t tx, int16_t ty) const {
 }
 
 // ── Word-wrap helper (identical to UIInfoPopup's) ───────────────────────────
-int UIConfirmPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
+int UIConfirmPopup::wordWrap(LovyanGFX& gfx, const char* text, float textSize,
                              int16_t maxWidth, int16_t* lineStarts,
                              int16_t* lineLengths, int maxLines)
 {
@@ -2134,7 +2265,7 @@ int UIConfirmPopup::wordWrap(M5GFX& gfx, const char* text, float textSize,
 }
 
 // ── Auto-size popup based on text content ───────────────────────────────────
-void UIConfirmPopup::autoSize(M5GFX& gfx) {
+void UIConfirmPopup::autoSize(LovyanGFX& gfx) {
     const int16_t hPad         = TAB5_PADDING * 2;
     const int16_t vPad         = TAB5_PADDING;
     const int16_t titleGap     = 42;
@@ -2200,44 +2331,55 @@ void UIConfirmPopup::autoSize(M5GFX& gfx) {
     _needsAutoSize = false;
 }
 
-void UIConfirmPopup::draw(M5GFX& gfx) {
+void UIConfirmPopup::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     if (_needsAutoSize) {
         autoSize(gfx);
     }
 
+    // Sprite covers popup + shadow (shadow is offset +4,+4)
+    int16_t sprW = _w + 4;
+    int16_t sprH = _h + 4;
+    M5Canvas* spr = acquireSprite(&gfx, sprW, sprH);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
+    // Clear sprite background (transparent area around popup)
+    if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
+
     // Shadow
-    gfx.fillRect(_x + 4, _y + 4, _w, _h, rgb888(0x0A0A14));
+    dst.fillRect(ox + 4, oy + 4, _w, _h, rgb888(0x0A0A14));
 
     // Background
-    gfx.fillSmoothRoundRect(_x, _y, _w, _h, 8, rgb888(_bgColor));
+    dst.fillSmoothRoundRect(ox, oy, _w, _h, 8, rgb888(_bgColor));
 
     // Border
-    gfx.drawRoundRect(_x, _y, _w, _h, 8, rgb888(_borderColor));
+    dst.drawRoundRect(ox, oy, _w, _h, 8, rgb888(_borderColor));
 
     // Title
-    gfx.setTextSize(TAB5_FONT_SIZE_LG);
-    gfx.setTextDatum(textdatum_t::top_center);
-    gfx.setTextColor(rgb888(_titleColor));
-    gfx.drawString(_title, _x + _w / 2, _y + TAB5_PADDING + 4);
+    dst.setTextSize(TAB5_FONT_SIZE_LG);
+    dst.setTextDatum(textdatum_t::top_center);
+    dst.setTextColor(rgb888(_titleColor));
+    dst.drawString(_title, ox + _w / 2, oy + TAB5_PADDING + 4);
 
     // Divider below title
-    int16_t divY = _y + TAB5_PADDING + 38;
-    gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+    int16_t divY = oy + TAB5_PADDING + 38;
+    dst.drawFastHLine(ox + TAB5_PADDING, divY,
                       _w - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
 
     // Message — word-wrapped
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    gfx.setTextDatum(textdatum_t::top_center);
-    gfx.setTextColor(rgb888(_textColor));
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextDatum(textdatum_t::top_center);
+    dst.setTextColor(rgb888(_textColor));
 
     int16_t contentW = _w - TAB5_PADDING * 2 - 10;
     int16_t lineStarts[32], lineLengths[32];
-    int numLines = wordWrap(gfx, _message, TAB5_FONT_SIZE_MD,
+    int numLines = wordWrap(dst, _message, TAB5_FONT_SIZE_MD,
                             contentW, lineStarts, lineLengths, 32);
 
-    int16_t lineH = (int16_t)(gfx.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
+    int16_t lineH = (int16_t)(dst.fontHeight() * TAB5_FONT_SIZE_MD) + 4;
     int16_t msgStartY = divY + 14;
 
     char lineBuf[257];
@@ -2247,18 +2389,18 @@ void UIConfirmPopup::draw(M5GFX& gfx) {
         memcpy(lineBuf, _message + lineStarts[i], len);
         while (len > 0 && lineBuf[len - 1] == ' ') len--;
         lineBuf[len] = '\0';
-        gfx.drawString(lineBuf, _x + _w / 2, msgStartY + i * lineH);
+        dst.drawString(lineBuf, ox + _w / 2, msgStartY + i * lineH);
     }
 
     // ── Yes / No buttons (side by side, centered at bottom) ──
     const int16_t btnGap = 20;
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
 
-    _yesBtnW = gfx.textWidth(_yesLabel) + 60;
+    _yesBtnW = dst.textWidth(_yesLabel) + 60;
     if (_yesBtnW < 100) _yesBtnW = 100;
     _yesBtnH = 40;
 
-    _noBtnW = gfx.textWidth(_noLabel) + 60;
+    _noBtnW = dst.textWidth(_noLabel) + 60;
     if (_noBtnW < 100) _noBtnW = 100;
     _noBtnH = 40;
 
@@ -2266,29 +2408,38 @@ void UIConfirmPopup::draw(M5GFX& gfx) {
     int16_t btnStartX = _x + (_w - totalBtnW) / 2;
     int16_t btnY = _y + _h - _yesBtnH - TAB5_PADDING;
 
-    // No button (left)
+    // No button (left) — store absolute coords for hit testing
     _noBtnX = btnStartX;
     _noBtnY = btnY;
+    int16_t noBtnOx = spr ? (_noBtnX - _x) : _noBtnX;
+    int16_t noBtnOy = spr ? (_noBtnY - _y) : _noBtnY;
 
     uint32_t noBg = _noBtnPressed ? rgb888(darken(_noBtnColor)) : rgb888(_noBtnColor);
-    gfx.fillSmoothRoundRect(_noBtnX, _noBtnY, _noBtnW, _noBtnH, 6, noBg);
+    dst.fillSmoothRoundRect(noBtnOx, noBtnOy, _noBtnW, _noBtnH, 6, noBg);
 
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    gfx.setTextDatum(textdatum_t::middle_center);
-    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
-    gfx.drawString(_noLabel, _noBtnX + _noBtnW / 2, _noBtnY + _noBtnH / 2);
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextDatum(textdatum_t::middle_center);
+    dst.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    dst.drawString(_noLabel, noBtnOx + _noBtnW / 2, noBtnOy + _noBtnH / 2);
 
     // Yes button (right)
     _yesBtnX = btnStartX + _noBtnW + btnGap;
     _yesBtnY = btnY;
+    int16_t yesBtnOx = spr ? (_yesBtnX - _x) : _yesBtnX;
+    int16_t yesBtnOy = spr ? (_yesBtnY - _y) : _yesBtnY;
 
     uint32_t yesBg = _yesBtnPressed ? rgb888(darken(_yesBtnColor)) : rgb888(_yesBtnColor);
-    gfx.fillSmoothRoundRect(_yesBtnX, _yesBtnY, _yesBtnW, _yesBtnH, 6, yesBg);
+    dst.fillSmoothRoundRect(yesBtnOx, yesBtnOy, _yesBtnW, _yesBtnH, 6, yesBg);
 
-    gfx.setTextSize(TAB5_FONT_SIZE_MD);
-    gfx.setTextDatum(textdatum_t::middle_center);
-    gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
-    gfx.drawString(_yesLabel, _yesBtnX + _yesBtnW / 2, _yesBtnY + _yesBtnH / 2);
+    dst.setTextSize(TAB5_FONT_SIZE_MD);
+    dst.setTextDatum(textdatum_t::middle_center);
+    dst.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+    dst.drawString(_yesLabel, yesBtnOx + _yesBtnW / 2, yesBtnOy + _yesBtnH / 2);
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
+    }
 
     _dirty = false;
 }
@@ -2387,7 +2538,7 @@ void UIScrollText::clampScroll() {
 }
 
 // ── Measure the display width of markdown text, ignoring marker characters ──
-int16_t UIScrollText::markdownTextWidth(M5GFX& gfx, const char* text, int len,
+int16_t UIScrollText::markdownTextWidth(LovyanGFX& gfx, const char* text, int len,
                                         float textSize) {
     gfx.setTextSize(textSize);
     int16_t totalW = 0;
@@ -2427,7 +2578,7 @@ int16_t UIScrollText::markdownTextWidth(M5GFX& gfx, const char* text, int len,
 }
 
 // ── Reflow: parse markdown blocks and word-wrap each paragraph ──
-void UIScrollText::reflow(M5GFX& gfx) {
+void UIScrollText::reflow(LovyanGFX& gfx) {
     int16_t contentW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 4;
     _lineCount = 0;
 
@@ -2623,7 +2774,7 @@ void UIScrollText::reflow(M5GFX& gfx) {
 }
 
 // ── Draw a line with inline markdown spans ──
-void UIScrollText::drawMarkdownLine(M5GFX& gfx, const char* text, int len,
+void UIScrollText::drawMarkdownLine(LovyanGFX& gfx, const char* text, int len,
                                     int16_t x, int16_t y, float textSize,
                                     uint32_t defaultColor) {
     gfx.setTextSize(textSize);
@@ -2708,7 +2859,7 @@ void UIScrollText::drawMarkdownLine(M5GFX& gfx, const char* text, int len,
     }
 }
 
-void UIScrollText::draw(M5GFX& gfx) {
+void UIScrollText::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Reflow text if needed
@@ -2716,20 +2867,26 @@ void UIScrollText::draw(M5GFX& gfx) {
         reflow(gfx);
     }
 
+    // ── Try sprite-buffered rendering for flicker-free scrolling ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
     // Background fill
-    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    dst.fillRect(ox, oy, _w, _h, rgb888(_bgColor));
 
     // Border
-    gfx.drawRect(_x, _y, _w, _h, rgb888(_borderColor));
+    dst.drawRect(ox, oy, _w, _h, rgb888(_borderColor));
 
     // Inner content area (padded)
-    int16_t innerX = _x + TAB5_PADDING;
-    int16_t innerY = _y + TAB5_PADDING;
+    int16_t innerX = ox + TAB5_PADDING;
+    int16_t innerY = oy + TAB5_PADDING;
     int16_t innerW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 2;
     int16_t innerH = _h - TAB5_PADDING * 2;
 
     // Clip to content area
-    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+    dst.setClipRect(ox + 1, oy + 1, _w - 2, _h - 2);
 
     int16_t bulletIndent = 28;
 
@@ -2742,13 +2899,13 @@ void UIScrollText::draw(M5GFX& gfx) {
         curY += sl.height;
 
         // Skip lines outside visible area
-        if (lineY + sl.height <= _y) continue;
-        if (lineY >= _y + _h) break;
+        if (lineY + sl.height <= oy) continue;
+        if (lineY >= oy + _h) break;
 
         // ── Horizontal rule ──
         if (sl.rule) {
             int16_t ruleY = lineY + sl.height / 2;
-            gfx.drawFastHLine(innerX, ruleY, innerW, rgb888(_ruleColor));
+            dst.drawFastHLine(innerX, ruleY, innerW, rgb888(_ruleColor));
             continue;
         }
 
@@ -2776,11 +2933,11 @@ void UIScrollText::draw(M5GFX& gfx) {
 
         // ── Bullet prefix ──
         if (sl.bullet) {
-            gfx.setTextSize(fontSize);
+            dst.setTextSize(fontSize);
             int16_t bulletR = 4;
             int16_t bulletCX = innerX + 10;
-            int16_t bulletCY = lineY + gfx.fontHeight() / 2;
-            gfx.fillCircle(bulletCX, bulletCY, bulletR, rgb888(_bulletColor));
+            int16_t bulletCY = lineY + dst.fontHeight() / 2;
+            dst.fillCircle(bulletCX, bulletCY, bulletR, rgb888(_bulletColor));
             drawX = innerX + bulletIndent;
         }
         // Continuation lines of bullets (not first) still get indent
@@ -2790,27 +2947,27 @@ void UIScrollText::draw(M5GFX& gfx) {
         }
 
         // ── Draw text with inline markdown ──
-        drawMarkdownLine(gfx, _text + sl.textStart, sl.textLength,
+        drawMarkdownLine(dst, _text + sl.textStart, sl.textLength,
                          drawX, lineY, fontSize, textColor);
 
         // ── Heading underline for H1 ──
         if (sl.heading == 1) {
             int16_t ulY = lineY + sl.height - 4;
-            gfx.drawFastHLine(innerX, ulY, innerW, rgb888(_ruleColor));
+            dst.drawFastHLine(innerX, ulY, innerW, rgb888(_ruleColor));
         }
     }
 
     // Clear clip
-    gfx.clearClipRect();
+    dst.clearClipRect();
 
     // Scrollbar (only if content overflows)
     int16_t contentH = totalContentHeight();
     if (contentH > innerH) {
-        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbX = ox + _w - TAB5_LIST_SCROLLBAR_W - 1;
         int16_t sbAreaH = _h - 2;
 
         // Scrollbar track
-        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+        dst.fillRect(sbX, oy + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
                      rgb888(darken(_bgColor, 60)));
 
         // Scrollbar thumb
@@ -2820,10 +2977,15 @@ void UIScrollText::draw(M5GFX& gfx) {
 
         int16_t ms = maxScroll();
         float scrollRatio = (ms > 0) ? (float)_scrollOffset / (float)ms : 0.0f;
-        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+        int16_t thumbY = oy + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
 
-        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+        dst.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
                                  3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -3016,7 +3178,7 @@ int UIList::itemAtY(int16_t ty) const {
     return idx;
 }
 
-void UIList::draw(M5GFX& gfx) {
+void UIList::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Auto-scale item height from text size if enabled
@@ -3031,31 +3193,38 @@ void UIList::draw(M5GFX& gfx) {
     int16_t iconSize = _itemH - TAB5_PADDING;
     if (iconSize < 16) iconSize = 16;
 
+    // ── Try sprite-buffered rendering for flicker-free scrolling ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    // Offset: when drawing to sprite, origin is (0,0); otherwise (_x,_y)
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
     // Background fill
-    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    dst.fillRect(ox, oy, _w, _h, rgb888(_bgColor));
 
     // Border
-    gfx.drawRect(_x, _y, _w, _h, rgb888(_borderColor));
+    dst.drawRect(ox, oy, _w, _h, rgb888(_borderColor));
 
     // Clip region
-    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+    dst.setClipRect(ox + 1, oy + 1, _w - 2, _h - 2);
 
     // Draw visible items
     for (int i = 0; i < _itemCount; i++) {
-        int16_t itemY = _y + (i * _itemH) - _scrollOffset;
+        int16_t itemY = oy + (i * _itemH) - _scrollOffset;
 
         // Skip items fully outside visible area
-        if (itemY + _itemH <= _y || itemY >= _y + _h) continue;
+        if (itemY + _itemH <= oy || itemY >= oy + _h) continue;
 
         // Selected highlight
         if (i == _selectedIndex) {
-            gfx.fillRect(_x + 1, itemY, _w - TAB5_LIST_SCROLLBAR_W - 2, _itemH,
+            dst.fillRect(ox + 1, itemY, _w - TAB5_LIST_SCROLLBAR_W - 2, _itemH,
                          rgb888(_selectColor));
         }
 
         // Item text
-        gfx.setTextSize(_textSize);
-        gfx.setTextDatum(textdatum_t::middle_left);
+        dst.setTextSize(_textSize);
+        dst.setTextDatum(textdatum_t::middle_left);
 
         uint32_t tc;
         if (!_items[i].enabled) {
@@ -3065,12 +3234,12 @@ void UIList::draw(M5GFX& gfx) {
         } else {
             tc = rgb888(_textColor);
         }
-        gfx.setTextColor(tc);
-        gfx.drawString(_items[i].text, _x + TAB5_PADDING, itemY + _itemH / 2);
+        dst.setTextColor(tc);
+        dst.drawString(_items[i].text, ox + TAB5_PADDING, itemY + _itemH / 2);
 
         // Right-aligned icon (if present)
         if (_items[i].hasIcon) {
-            int16_t iconX = _x + _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING - iconSize - 2;
+            int16_t iconX = ox + _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING - iconSize - 2;
             int16_t iconY = itemY + (_itemH - iconSize) / 2;
 
             if (_items[i].iconCircle) {
@@ -3078,29 +3247,29 @@ void UIList::draw(M5GFX& gfx) {
                 int16_t cr = iconSize / 2;
                 int16_t cx = iconX + cr;
                 int16_t cy = iconY + cr;
-                gfx.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
-                gfx.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
+                dst.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
+                dst.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
 
                 // Icon character
                 if (_items[i].iconChar[0] != '\0') {
-                    gfx.setTextSize(_textSize * 0.8f);
-                    gfx.setTextDatum(textdatum_t::middle_center);
-                    gfx.setTextColor(rgb888(_items[i].iconCharColor));
-                    gfx.drawString(_items[i].iconChar, cx, cy);
+                    dst.setTextSize(_textSize * 0.8f);
+                    dst.setTextDatum(textdatum_t::middle_center);
+                    dst.setTextColor(rgb888(_items[i].iconCharColor));
+                    dst.drawString(_items[i].iconChar, cx, cy);
                 }
             } else {
                 // Square icon (rounded)
-                gfx.fillSmoothRoundRect(iconX, iconY, iconSize, iconSize, 4,
+                dst.fillSmoothRoundRect(iconX, iconY, iconSize, iconSize, 4,
                                          rgb888(_items[i].iconColor));
-                gfx.drawRoundRect(iconX, iconY, iconSize, iconSize, 4,
+                dst.drawRoundRect(iconX, iconY, iconSize, iconSize, 4,
                                    rgb888(_items[i].iconBorderColor));
 
                 // Icon character
                 if (_items[i].iconChar[0] != '\0') {
-                    gfx.setTextSize(_textSize * 0.8f);
-                    gfx.setTextDatum(textdatum_t::middle_center);
-                    gfx.setTextColor(rgb888(_items[i].iconCharColor));
-                    gfx.drawString(_items[i].iconChar,
+                    dst.setTextSize(_textSize * 0.8f);
+                    dst.setTextDatum(textdatum_t::middle_center);
+                    dst.setTextColor(rgb888(_items[i].iconCharColor));
+                    dst.drawString(_items[i].iconChar,
                                    iconX + iconSize / 2, iconY + iconSize / 2);
                 }
             }
@@ -3109,23 +3278,23 @@ void UIList::draw(M5GFX& gfx) {
         // Divider between items
         if (i < _itemCount - 1) {
             int16_t divY = itemY + _itemH - 1;
-            gfx.drawFastHLine(_x + TAB5_PADDING, divY,
+            dst.drawFastHLine(ox + TAB5_PADDING, divY,
                               _w - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2,
                               rgb888(Tab5Theme::DIVIDER));
         }
     }
 
     // Clear clip
-    gfx.clearClipRect();
+    dst.clearClipRect();
 
     // Scrollbar (only if content overflows)
     int16_t contentH = totalContentHeight();
     if (contentH > _h) {
-        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbX = ox + _w - TAB5_LIST_SCROLLBAR_W - 1;
         int16_t sbAreaH = _h - 2;
 
         // Scrollbar track
-        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+        dst.fillRect(sbX, oy + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
                      rgb888(darken(_bgColor, 60)));
 
         // Scrollbar thumb
@@ -3134,10 +3303,15 @@ void UIList::draw(M5GFX& gfx) {
         if (thumbH < 20) thumbH = 20;
 
         float scrollRatio = (float)_scrollOffset / (float)maxScroll();
-        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+        int16_t thumbY = oy + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
 
-        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+        dst.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
                                  3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -3214,7 +3388,7 @@ void UICheckbox::setLabel(const char* label) {
     _dirty = true;
 }
 
-void UICheckbox::draw(M5GFX& gfx) {
+void UICheckbox::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Vertical center of the element
@@ -3335,7 +3509,7 @@ void UIRadioButton::setGroup(UIRadioGroup* g) {
     if (g) g->addButton(this);
 }
 
-void UIRadioButton::draw(M5GFX& gfx) {
+void UIRadioButton::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     int16_t cy = _y + _h / 2;
@@ -3524,6 +3698,15 @@ void UIDropdown::open() {
 }
 
 void UIDropdown::close() {
+    // Save the list overlay footprint so draw() can erase it
+    // (list geometry was calculated when the dropdown was opened/drawn)
+    if (_open) {
+        _needsListErase = true;
+        _eraseX = _listX;
+        _eraseY = _listY;
+        _eraseW = _listW + 3;  // +3 for shadow offset
+        _eraseH = _listH + 3;
+    }
     _open = false;
     _btnPressed = false;
     _dragging = false;
@@ -3565,25 +3748,40 @@ void UIDropdown::calcListGeometry() {
 
     _listH = visCount * _itemH;
 
-    // Position below button, but flip upward if it would go off-screen
+    // Determine usable vertical bounds.  If explicit content bounds were
+    // set via setContentBounds(), use those.  Otherwise default to the
+    // screen area between the standard title and status bars.
+    int16_t minY = _boundsTop > 0 ? _boundsTop : TAB5_TITLE_H;
+    int16_t maxY = _boundsBottom > 0 ? _boundsBottom
+                 : (Tab5UI::screenH() - TAB5_STATUS_H);
+
+    // Position below button, but flip upward if it would go off-bounds
     int16_t belowY = _y + _h;
     int16_t aboveY = _y - _listH;
 
-    if (belowY + _listH <= Tab5UI::screenH()) {
+    if (belowY + _listH <= maxY) {
         _listY = belowY;
-    } else if (aboveY >= 0) {
+    } else if (aboveY >= minY) {
         _listY = aboveY;
     } else {
-        // Constrain to screen bottom
+        // Constrain to available space below
         _listY = belowY;
-        _listH = Tab5UI::screenH() - belowY;
+        _listH = maxY - belowY;
+        if (_listH < _itemH) _listH = _itemH;  // at least one item
     }
 }
 
 // ── Drawing ─────────────────────────────────────────────────────────────────
 
-void UIDropdown::draw(M5GFX& gfx) {
+void UIDropdown::draw(LovyanGFX& gfx) {
     if (!_visible) return;
+
+    // Erase the old list overlay area if the dropdown just closed
+    if (_needsListErase) {
+        _needsListErase = false;
+        gfx.fillRect(_eraseX, _eraseY, _eraseW, _eraseH,
+                     rgb888(Tab5Theme::BG_DARK));
+    }
 
     // Auto-scale item height from text size
     gfx.setTextSize(_textSize);
@@ -3642,35 +3840,46 @@ void UIDropdown::draw(M5GFX& gfx) {
     if (_open) {
         calcListGeometry();
 
+        // Sprite covers list + shadow (shadow offset +3,+3)
+        int16_t sprW = _listW + 3;
+        int16_t sprH = _listH + 3;
+        M5Canvas* spr = acquireSprite(&gfx, sprW, sprH);
+        LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+        int16_t lox = spr ? 0 : _listX;
+        int16_t loy = spr ? 0 : _listY;
+
+        // Clear sprite area (background behind shadow)
+        if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
+
         // Shadow
-        gfx.fillRect(_listX + 3, _listY + 3, _listW, _listH, rgb888(0x0A0A14));
+        dst.fillRect(lox + 3, loy + 3, _listW, _listH, rgb888(0x0A0A14));
 
         // Background
-        gfx.fillRect(_listX, _listY, _listW, _listH, rgb888(_bgColor));
+        dst.fillRect(lox, loy, _listW, _listH, rgb888(_bgColor));
 
         // Border
-        gfx.drawRect(_listX, _listY, _listW, _listH, rgb888(_borderColor));
+        dst.drawRect(lox, loy, _listW, _listH, rgb888(_borderColor));
 
         // Clip region for items
-        gfx.setClipRect(_listX + 1, _listY + 1, _listW - 2, _listH - 2);
+        dst.setClipRect(lox + 1, loy + 1, _listW - 2, _listH - 2);
 
         // Draw visible items
         for (int i = 0; i < _itemCount; i++) {
-            int16_t itemY = _listY + (i * _itemH) - _scrollOffset;
+            int16_t itemY = loy + (i * _itemH) - _scrollOffset;
 
             // Skip items fully outside visible area
-            if (itemY + _itemH <= _listY || itemY >= _listY + _listH) continue;
+            if (itemY + _itemH <= loy || itemY >= loy + _listH) continue;
 
             // Selected highlight
             if (i == _selectedIndex) {
-                gfx.fillRect(_listX + 1, itemY,
+                dst.fillRect(lox + 1, itemY,
                              _listW - TAB5_LIST_SCROLLBAR_W - 2, _itemH,
                              rgb888(_selectColor));
             }
 
             // Item text
-            gfx.setTextSize(_textSize);
-            gfx.setTextDatum(textdatum_t::middle_left);
+            dst.setTextSize(_textSize);
+            dst.setTextDatum(textdatum_t::middle_left);
 
             uint32_t tc;
             if (!_items[i].enabled) {
@@ -3680,13 +3889,13 @@ void UIDropdown::draw(M5GFX& gfx) {
             } else {
                 tc = rgb888(_textColor);
             }
-            gfx.setTextColor(tc);
-            gfx.drawString(_items[i].text, _listX + TAB5_PADDING,
+            dst.setTextColor(tc);
+            dst.drawString(_items[i].text, lox + TAB5_PADDING,
                            itemY + _itemH / 2);
 
             // Right-aligned icon (if present)
             if (_items[i].hasIcon) {
-                int16_t iconX = _listX + _listW - TAB5_LIST_SCROLLBAR_W
+                int16_t iconX = lox + _listW - TAB5_LIST_SCROLLBAR_W
                               - TAB5_PADDING - iconSize - 2;
                 int16_t iconY_ = itemY + (_itemH - iconSize) / 2;
 
@@ -3694,24 +3903,24 @@ void UIDropdown::draw(M5GFX& gfx) {
                     int16_t cr = iconSize / 2;
                     int16_t cx = iconX + cr;
                     int16_t cy = iconY_ + cr;
-                    gfx.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
-                    gfx.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
+                    dst.fillCircle(cx, cy, cr, rgb888(_items[i].iconColor));
+                    dst.drawCircle(cx, cy, cr, rgb888(_items[i].iconBorderColor));
                     if (_items[i].iconChar[0] != '\0') {
-                        gfx.setTextSize(_textSize * 0.8f);
-                        gfx.setTextDatum(textdatum_t::middle_center);
-                        gfx.setTextColor(rgb888(_items[i].iconCharColor));
-                        gfx.drawString(_items[i].iconChar, cx, cy);
+                        dst.setTextSize(_textSize * 0.8f);
+                        dst.setTextDatum(textdatum_t::middle_center);
+                        dst.setTextColor(rgb888(_items[i].iconCharColor));
+                        dst.drawString(_items[i].iconChar, cx, cy);
                     }
                 } else {
-                    gfx.fillSmoothRoundRect(iconX, iconY_, iconSize, iconSize,
+                    dst.fillSmoothRoundRect(iconX, iconY_, iconSize, iconSize,
                                              4, rgb888(_items[i].iconColor));
-                    gfx.drawRoundRect(iconX, iconY_, iconSize, iconSize,
+                    dst.drawRoundRect(iconX, iconY_, iconSize, iconSize,
                                        4, rgb888(_items[i].iconBorderColor));
                     if (_items[i].iconChar[0] != '\0') {
-                        gfx.setTextSize(_textSize * 0.8f);
-                        gfx.setTextDatum(textdatum_t::middle_center);
-                        gfx.setTextColor(rgb888(_items[i].iconCharColor));
-                        gfx.drawString(_items[i].iconChar,
+                        dst.setTextSize(_textSize * 0.8f);
+                        dst.setTextDatum(textdatum_t::middle_center);
+                        dst.setTextColor(rgb888(_items[i].iconCharColor));
+                        dst.drawString(_items[i].iconChar,
                                        iconX + iconSize / 2,
                                        iconY_ + iconSize / 2);
                     }
@@ -3721,23 +3930,23 @@ void UIDropdown::draw(M5GFX& gfx) {
             // Divider between items
             if (i < _itemCount - 1) {
                 int16_t divY = itemY + _itemH - 1;
-                gfx.drawFastHLine(_listX + TAB5_PADDING, divY,
+                dst.drawFastHLine(lox + TAB5_PADDING, divY,
                                   _listW - TAB5_LIST_SCROLLBAR_W - TAB5_PADDING * 2,
                                   rgb888(Tab5Theme::DIVIDER));
             }
         }
 
         // Clear clip
-        gfx.clearClipRect();
+        dst.clearClipRect();
 
         // Scrollbar (only if content overflows)
         int16_t contentH = totalContentHeight();
         if (contentH > _listH) {
-            int16_t sbX = _listX + _listW - TAB5_LIST_SCROLLBAR_W - 1;
+            int16_t sbX = lox + _listW - TAB5_LIST_SCROLLBAR_W - 1;
             int16_t sbAreaH = _listH - 2;
 
             // Scrollbar track
-            gfx.fillRect(sbX, _listY + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+            dst.fillRect(sbX, loy + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
                          rgb888(darken(_bgColor, 60)));
 
             // Scrollbar thumb
@@ -3746,12 +3955,17 @@ void UIDropdown::draw(M5GFX& gfx) {
             if (thumbH < 20) thumbH = 20;
 
             float scrollRatio = (float)_scrollOffset / (float)maxScroll();
-            int16_t thumbY = _listY + 1
+            int16_t thumbY = loy + 1
                            + (int16_t)((sbAreaH - thumbH) * scrollRatio);
 
-            gfx.fillSmoothRoundRect(sbX, thumbY,
+            dst.fillSmoothRoundRect(sbX, thumbY,
                                      TAB5_LIST_SCROLLBAR_W, thumbH,
                                      3, rgb888(Tab5Theme::TEXT_DISABLED));
+        }
+
+        // Push sprite to display in one transfer (flicker-free)
+        if (spr) {
+            spr->pushSprite(&gfx, _listX, _listY);
         }
     }
 
@@ -3996,7 +4210,7 @@ void UITextArea::clampScroll() {
 }
 
 // ── Word-wrap the text buffer into display lines ──
-void UITextArea::reflow(M5GFX& gfx) {
+void UITextArea::reflow(LovyanGFX& gfx) {
     int16_t contentW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 4;
     _lineCount = 0;
 
@@ -4098,7 +4312,7 @@ void UITextArea::reflow(M5GFX& gfx) {
 }
 
 // ── Determine cursor position from a touch coordinate ──
-int UITextArea::cursorFromTouch(M5GFX& gfx, int16_t tx, int16_t ty) {
+int UITextArea::cursorFromTouch(LovyanGFX& gfx, int16_t tx, int16_t ty) {
     if (_lineCount == 0) return 0;
 
     int16_t innerX = _x + TAB5_PADDING;
@@ -4184,7 +4398,7 @@ void UITextArea::ensureCursorVisible() {
     clampScroll();
 }
 
-void UITextArea::draw(M5GFX& gfx) {
+void UITextArea::draw(LovyanGFX& gfx) {
     if (!_visible) return;
 
     // Reflow if needed
@@ -4199,33 +4413,39 @@ void UITextArea::draw(M5GFX& gfx) {
         _cursorPos = cursorFromTouch(gfx, _pendingTapX, _pendingTapY);
     }
 
+    // ── Try sprite-buffered rendering for flicker-free scrolling ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
     // Background
-    gfx.fillRect(_x, _y, _w, _h, rgb888(_bgColor));
+    dst.fillRect(ox, oy, _w, _h, rgb888(_bgColor));
 
     // Border (highlight when focused)
     uint32_t bc = _focused ? rgb888(_focusBorderColor) : rgb888(_borderColor);
-    gfx.drawRect(_x, _y, _w, _h, bc);
+    dst.drawRect(ox, oy, _w, _h, bc);
     if (_focused) {
-        gfx.drawRect(_x + 1, _y + 1, _w - 2, _h - 2, bc);  // 2px border
+        dst.drawRect(ox + 1, oy + 1, _w - 2, _h - 2, bc);  // 2px border
     }
 
-    int16_t innerX = _x + TAB5_PADDING;
-    int16_t innerY = _y + TAB5_PADDING;
+    int16_t innerX = ox + TAB5_PADDING;
+    int16_t innerY = oy + TAB5_PADDING;
     int16_t innerW = _w - TAB5_PADDING * 2 - TAB5_LIST_SCROLLBAR_W - 2;
     int16_t innerH = _h - TAB5_PADDING * 2;
 
     // Clip to content area
-    gfx.setClipRect(_x + 1, _y + 1, _w - 2, _h - 2);
+    dst.setClipRect(ox + 1, oy + 1, _w - 2, _h - 2);
 
-    gfx.setTextSize(_textSize);
-    gfx.setTextDatum(textdatum_t::top_left);
+    dst.setTextSize(_textSize);
+    dst.setTextDatum(textdatum_t::top_left);
 
     if (_text[0] == '\0' && !_focused) {
         // Show placeholder
-        gfx.setTextColor(rgb888(_phColor));
-        gfx.drawString(_placeholder, innerX, innerY);
+        dst.setTextColor(rgb888(_phColor));
+        dst.drawString(_placeholder, innerX, innerY);
     } else {
-        gfx.setTextColor(rgb888(_textColor));
+        dst.setTextColor(rgb888(_textColor));
 
         // Find which display line the cursor is on
         int cursorLine = -1;
@@ -4255,16 +4475,16 @@ void UITextArea::draw(M5GFX& gfx) {
             curY += sl.height;
 
             // Skip lines outside visible area
-            if (lineY + sl.height <= _y) continue;
-            if (lineY >= _y + _h) break;
+            if (lineY + sl.height <= oy) continue;
+            if (lineY >= oy + _h) break;
 
             if (sl.length > 0) {
                 char buf[257];
                 int drawLen = (sl.length > 255) ? 255 : sl.length;
                 memcpy(buf, _text + sl.start, drawLen);
                 buf[drawLen] = '\0';
-                gfx.setTextColor(rgb888(_textColor));
-                gfx.drawString(buf, innerX, lineY);
+                dst.setTextColor(rgb888(_textColor));
+                dst.drawString(buf, innerX, lineY);
             }
 
             // Draw cursor on this line
@@ -4275,29 +4495,29 @@ void UITextArea::draw(M5GFX& gfx) {
                     int cLen = (cursorCharInLine > 255) ? 255 : cursorCharInLine;
                     memcpy(buf, _text + sl.start, cLen);
                     buf[cLen] = '\0';
-                    cx = innerX + gfx.textWidth(buf);
+                    cx = innerX + dst.textWidth(buf);
                 } else {
                     cx = innerX;
                 }
                 int16_t cy1 = lineY + 2;
                 int16_t cy2 = lineY + sl.height - 4;
-                gfx.drawFastVLine(cx, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
-                gfx.drawFastVLine(cx + 1, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+                dst.drawFastVLine(cx, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
+                dst.drawFastVLine(cx + 1, cy1, cy2 - cy1, rgb888(Tab5Theme::TEXT_PRIMARY));
             }
         }
     }
 
     // Clear clip
-    gfx.clearClipRect();
+    dst.clearClipRect();
 
     // Scrollbar (only if content overflows)
     int16_t contentH = totalContentHeight();
     if (contentH > innerH) {
-        int16_t sbX = _x + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbX = ox + _w - TAB5_LIST_SCROLLBAR_W - 1;
         int16_t sbAreaH = _h - 2;
 
         // Scrollbar track
-        gfx.fillRect(sbX, _y + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+        dst.fillRect(sbX, oy + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
                      rgb888(darken(_bgColor, 60)));
 
         // Scrollbar thumb
@@ -4307,10 +4527,15 @@ void UITextArea::draw(M5GFX& gfx) {
 
         int16_t ms = maxScroll();
         float scrollRatio = (ms > 0) ? (float)_scrollOffset / (float)ms : 0.0f;
-        int16_t thumbY = _y + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+        int16_t thumbY = oy + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
 
-        gfx.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+        dst.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
                                  3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    // Push sprite to display in one transfer (flicker-free)
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
     }
 
     _dirty = false;
@@ -4436,11 +4661,13 @@ void UIManager::drawDirty() {
     }
 
     // If anything was redrawn and a modal overlay (keyboard, popup, menu) is
-    // visible, redraw it on top so it isn't covered by a widget that painted
-    // over its area (e.g. a UITextArea that extends beneath the keyboard).
+    // visible and dirty, redraw it on top so it isn't covered by a widget
+    // that painted over its area (e.g. a UITextArea that extends beneath
+    // the keyboard).  Only redraw if the overlay is actually dirty —
+    // unconditional redraws cause a flash on every keystroke.
     if (anyDrawn) {
         for (auto* elem : _elements) {
-            if (!elem->isVisible()) continue;
+            if (!elem->isVisible() || !elem->isDirty()) continue;
             if (elem->isKeyboard() || elem->isPopup() || elem->isMenu()) {
                 elem->draw(_gfx);
                 elem->setDirty(false);
@@ -4549,12 +4776,58 @@ void UIManager::update() {
                           && _touchedElem->isVisible();
             _touchedElem->handleTouchUp(_lastTouchX, _lastTouchY);
 
-            // If a modal overlay just closed, redraw everything beneath it
+            // If a modal overlay just closed, erase its footprint and
+            // mark overlapping elements dirty.  Avoid marking the TabView
+            // container itself dirty — that would trigger UITabView::draw()
+            // which clears the entire content area with fillRect, causing a
+            // visible flash.  Instead, drawDirtyChildren() will repaint only
+            // the affected children without a background clear.
             if (wasModal && !_touchedElem->isVisible()) {
+                // Erase the modal footprint (including shadow offset)
+                int16_t mx = _touchedElem->getX();
+                int16_t my = _touchedElem->getY();
+                int16_t mw = _touchedElem->getWidth() + 4;  // shadow offset
+                int16_t mh = _touchedElem->getHeight() + 4;
+                _gfx.fillRect(mx, my, mw, mh, rgb888(_bgColor));
+
+                // Mark elements that overlap the modal footprint as dirty
                 for (auto* e : _elements) {
-                    e->setDirty(true);
+                    if (!e->isVisible()) continue;
+                    // For TabViews, mark overlapping children dirty (not the
+                    // TabView itself) so drawDirtyChildren() handles them.
+                    if (e->isTabView()) {
+                        UITabView* tv = static_cast<UITabView*>(e);
+                        int ap = tv->getActivePage();
+                        if (ap >= 0) {
+                            int cc = tv->getChildCount(ap);
+                            for (int ci = 0; ci < cc; ci++) {
+                                UIElement* child = tv->getChild(ap, ci);
+                                if (child && child->isVisible()) {
+                                    // Check overlap with modal footprint
+                                    int16_t cx = child->getX();
+                                    int16_t cy = child->getY();
+                                    int16_t cw = child->getWidth();
+                                    int16_t ch = child->getHeight();
+                                    if (cx < mx + mw && cx + cw > mx &&
+                                        cy < my + mh && cy + ch > my) {
+                                        child->setDirty(true);
+                                    }
+                                }
+                            }
+                        }
+                        // Redraw the tab bar cheaply (no fillRect flash)
+                        tv->drawTabBar(_gfx);
+                    } else if (e != _touchedElem) {
+                        int16_t ex = e->getX();
+                        int16_t ey = e->getY();
+                        int16_t ew = e->getWidth();
+                        int16_t eh = e->getHeight();
+                        if (ex < mx + mw && ex + ew > mx &&
+                            ey < my + mh && ey + eh > my) {
+                            e->setDirty(true);
+                        }
+                    }
                 }
-                clearScreen();
             }
             _touchedElem = nullptr;
         }

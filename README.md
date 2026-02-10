@@ -45,6 +45,39 @@ element.setOnTouchRelease([](TouchEvent e) {
 
 The `UIManager::update()` method handles all touch detection, hit-testing (including circular hit-test for `UIIconCircle`), and dirty-region redraws automatically.
 
+
+### Flicker-Free Rendering
+
+Nine widgets use **sprite-buffered (double-buffered) rendering** via a shared `M5Canvas` allocated in PSRAM. Instead of clearing and redrawing directly to the display (which causes visible flicker), each widget renders into an off-screen sprite buffer and pushes the completed frame to the display in a single DMA transfer. If PSRAM allocation fails, widgets automatically fall back to direct rendering.
+
+**Sprite-buffered widgets:**
+
+| Widget | Why it needs buffering |
+|--------|----------------------|
+| **UIList** | Scrollable item list with selection highlighting |
+| **UIScrollText** | Scrollable Markdown-rendered text |
+| **UITextArea** | Multi-line text input with cursor and scrolling |
+| **UIDropdown** | Scrollable overlay list |
+| **UISlider** | Animated thumb and fill track |
+| **UIKeyboard** | Full-screen modal key grid |
+| **UIMenu** | Modal popup menu |
+| **UIInfoPopup** | Modal info dialog |
+| **UIConfirmPopup** | Modal confirmation dialog |
+
+All nine widgets share a single static `M5Canvas` instance that is lazily allocated and reused, keeping PSRAM usage to one buffer at a time.
+
+You can override the default behaviour by defining `TAB5_RENDER_MODE` **before** including `Tab5UI.h`:
+
+| Value | Constant | Effect |
+|:-----:|----------|--------|
+| `0`   | *(default)* Auto | Sprite-buffered with automatic fallback to direct if PSRAM allocation fails |
+| `1`   | Sprite   | Always sprite-buffer — the pixel-count safety cap is removed (use when you know your PSRAM budget) |
+| `2`   | Direct   | Always draw directly to the display — no sprite allocation at all |
+
+```cpp
+#define TAB5_RENDER_MODE 2   // force direct rendering
+#include <Tab5UI.h>
+```
 ---
 
 ## Installation
@@ -883,6 +916,7 @@ Tab5UI/
 ├── library.properties                # Arduino IDE metadata
 ├── library.json                      # PlatformIO metadata
 ├── README.md                         # This file
+├── CHANGELOG.md                      # Version history
 ├── LICENSE                           # GNU GPL v3
 ├── icons/                            # 32×32 PROGMEM PNG icon headers
 │   ├── README.md                     # Icon attribution & usage
