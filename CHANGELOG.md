@@ -2,6 +2,12 @@
 
 All notable changes to the Tab5UI library are documented here.
 
+## [1.1.1] — 2026-02-11
+
+### Bug Fixes
+- **Popup shadow corners** — `UIInfoPopup` and `UIConfirmPopup` shadows now use `fillSmoothRoundRect` (radius 8) instead of `fillRect`, matching the rounded corners of the popup body.
+- **Low-power idle wake** — Replaced `esp_light_sleep_start()` (which powers down I2C on the ESP32-P4, breaking GT911 touch) with a simple `getTouch()` polling loop. Wake latency is ~50 ms with no hardware dependencies beyond M5GFX.
+
 ## [1.1.0] — 2026-02-10
 
 ### New Widgets

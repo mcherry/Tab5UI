@@ -2057,8 +2057,8 @@ void UIInfoPopup::draw(LovyanGFX& gfx) {
     // Clear sprite background (transparent area around popup)
     if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
 
-    // Shadow
-    dst.fillRect(ox + 4, oy + 4, _w, _h, rgb888(0x0A0A14));
+    // Shadow (rounded to match popup)
+    dst.fillSmoothRoundRect(ox + 4, oy + 4, _w, _h, 8, rgb888(0x0A0A14));
 
     // Background
     dst.fillSmoothRoundRect(ox, oy, _w, _h, 8, rgb888(_bgColor));
@@ -2380,8 +2380,8 @@ void UIConfirmPopup::draw(LovyanGFX& gfx) {
     // Clear sprite background (transparent area around popup)
     if (spr) dst.fillRect(0, 0, sprW, sprH, rgb888(Tab5Theme::BG_DARK));
 
-    // Shadow
-    dst.fillRect(ox + 4, oy + 4, _w, _h, rgb888(0x0A0A14));
+    // Shadow (rounded to match popup)
+    dst.fillSmoothRoundRect(ox + 4, oy + 4, _w, _h, 8, rgb888(0x0A0A14));
 
     // Background
     dst.fillSmoothRoundRect(ox, oy, _w, _h, 8, rgb888(_bgColor));
