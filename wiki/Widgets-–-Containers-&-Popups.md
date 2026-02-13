@@ -193,4 +193,79 @@ are individually customizable via setter methods.
 
 ---
 
+## UIScrollTextPopup
+
+```cpp
+UIScrollTextPopup("Title", "# Markdown Content\n\nSome **text**.");
+```
+
+**Constructor:** `UIScrollTextPopup(const char* title = "Info", const char* content = "")`
+
+**Key methods:**
+
+```cpp
+// Content
+void setTitle(const char* title);
+void setText(const char* text);       // Up to 2048 chars
+const char* getText() const;
+void setButtonLabel(const char* label); // Default: "Close"
+
+// Visibility
+void show();                          // Display the popup
+void hide();                          // Dismiss the popup
+bool isOpen() const;                  // Check if currently visible
+
+// Dismiss callback
+void setOnDismiss(TouchCallback cb);  // Called when popup is closed
+
+// Appearance
+void setTextSize(float s);            // Font size (default: TAB5_FONT_SIZE_MD)
+void setBgColor(uint32_t c);
+void setTitleColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setBtnColor(uint32_t c);
+void setBorderColor(uint32_t c);
+
+// Markdown colors
+void setHeadingColor(uint32_t c);
+void setBoldColor(uint32_t c);
+void setItalicColor(uint32_t c);
+void setCodeColor(uint32_t c);
+void setCodeBgColor(uint32_t c);
+void setRuleColor(uint32_t c);
+void setBulletColor(uint32_t c);
+
+// Scroll control
+void scrollTo(int16_t offset);
+void scrollToTop();
+void scrollToBottom();
+```
+
+**Behavior:** A large modal popup that fills the available screen area
+between the title bar and status bar.  It displays a centered title at
+the top, a scrollable Markdown-rendered text body in the middle, and a
+single Close button at the bottom.
+
+The text body supports the same **Markdown syntax** as UIScrollText
+(headings, bold, italic, code, bullets, horizontal rules) and can be
+scrolled by touch-dragging.  A scrollbar appears when content overflows.
+
+**Dismissal:** The popup closes when the user taps the Close button or
+taps outside the popup area.  The `onDismiss` callback fires on close.
+
+**Example:**
+
+```cpp
+UIScrollTextPopup helpPopup("Help", "# Getting Started\n\nWelcome to **Tab5UI**!");
+
+helpPopup.setOnDismiss([](TouchEvent) {
+    statusBar.setMessage("Help closed");
+});
+
+// In a button callback:
+helpPopup.show();
+```
+
+---
+
 **Next:** [[Widgets – Selection]] · [[UIManager]] · [[Rendering]]

@@ -3060,6 +3060,661 @@ void UIScrollText::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIScrollTextPopup
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIScrollTextPopup::UIScrollTextPopup(const char* title, const char* content)
+    : UIElement(0, 0, 10, 10)
+    , _popX(0), _popY(0), _popW(10), _popH(10)
+    , _titleY(0)
+    , _bodyX(0), _bodyY(0), _bodyW(10), _bodyH(10)
+    , _btnX(0), _btnY(0), _btnW(100), _btnH(40)
+{
+    _visible = false;
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    strncpy(_text, content, TAB5_SCROLLTEXT_MAX_LEN - 1);
+    _text[TAB5_SCROLLTEXT_MAX_LEN - 1] = '\0';
+    strncpy(_btnLabel, "Close", sizeof(_btnLabel) - 1);
+    _btnLabel[sizeof(_btnLabel) - 1] = '\0';
+}
+
+void UIScrollTextPopup::setTitle(const char* title) {
+    strncpy(_title, title, sizeof(_title) - 1);
+    _title[sizeof(_title) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIScrollTextPopup::setText(const char* text) {
+    strncpy(_text, text, TAB5_SCROLLTEXT_MAX_LEN - 1);
+    _text[TAB5_SCROLLTEXT_MAX_LEN - 1] = '\0';
+    _needsWrap = true;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UIScrollTextPopup::setButtonLabel(const char* label) {
+    strncpy(_btnLabel, label, sizeof(_btnLabel) - 1);
+    _btnLabel[sizeof(_btnLabel) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIScrollTextPopup::show() {
+    _visible = true;
+    _btnPressed = false;
+    _needsLayout = true;
+    _needsFrameRedraw = true;
+    _needsWrap = true;
+    _scrollOffset = 0;
+    _dirty = true;
+}
+
+void UIScrollTextPopup::hide() {
+    _visible = false;
+    _btnPressed = false;
+    _dirty = true;
+}
+
+void UIScrollTextPopup::scrollTo(int16_t offset) {
+    _scrollOffset = offset;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIScrollTextPopup::scrollToBottom() {
+    _scrollOffset = maxScroll();
+    _dirty = true;
+}
+
+int16_t UIScrollTextPopup::totalContentHeight() const {
+    int16_t total = 0;
+    for (int i = 0; i < _lineCount; i++) {
+        total += _lines[i].height;
+    }
+    return total;
+}
+
+int16_t UIScrollTextPopup::maxScroll() const {
+    int16_t contentH = totalContentHeight();
+    if (contentH <= _bodyH) return 0;
+    return contentH - _bodyH;
+}
+
+void UIScrollTextPopup::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+bool UIScrollTextPopup::hitTestBtn(int16_t tx, int16_t ty) const {
+    return tx >= _btnX && tx < _btnX + _btnW &&
+           ty >= _btnY && ty < _btnY + _btnH;
+}
+
+bool UIScrollTextPopup::hitTestBody(int16_t tx, int16_t ty) const {
+    return tx >= _bodyX && tx < _bodyX + _bodyW &&
+           ty >= _bodyY && ty < _bodyY + _bodyH;
+}
+
+// ── Compute layout: fill the area between title bar and status bar ──
+void UIScrollTextPopup::computeLayout() {
+    const int16_t margin   = TAB5_PADDING;
+    const int16_t titleGap = 44;   // title text + divider
+    const int16_t btnAreaH = 52;   // button + bottom padding
+
+    // Popup fills between title bar and status bar with margin
+    _popX = margin;
+    _popY = TAB5_TITLE_H + margin;
+    _popW = Tab5UI::screenW() - margin * 2;
+    _popH = Tab5UI::screenH() - TAB5_TITLE_H - TAB5_STATUS_H - margin * 2;
+
+    // Update UIElement bounds for hitTest
+    _x = _popX;
+    _y = _popY;
+    _w = _popW;
+    _h = _popH;
+
+    // Title Y position (centered in title area)
+    _titleY = _popY + TAB5_PADDING + 4;
+
+    // Body area for scrollable text
+    _bodyX = _popX + TAB5_PADDING;
+    _bodyY = _popY + TAB5_PADDING + titleGap;
+    _bodyW = _popW - TAB5_PADDING * 2;
+    _bodyH = _popH - TAB5_PADDING * 2 - titleGap - btnAreaH;
+
+    // Close button (centered at bottom)
+    _btnW = 120;
+    _btnH = 40;
+    _btnX = _popX + (_popW - _btnW) / 2;
+    _btnY = _popY + _popH - _btnH - TAB5_PADDING;
+
+    _needsLayout = false;
+}
+
+// ── Measure the display width of markdown text, ignoring marker characters ──
+int16_t UIScrollTextPopup::markdownTextWidth(LovyanGFX& gfx, const char* text,
+                                             int len, float textSize) {
+    gfx.setTextSize(textSize);
+    int16_t totalW = 0;
+    int i = 0;
+    char buf[257];
+
+    while (i < len) {
+        // Skip markdown markers
+        if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') { i += 2; continue; }
+        if (text[i] == '*') { i += 1; continue; }
+        if (text[i] == '`') { i += 1; continue; }
+
+        // Regular character — measure run
+        int runStart = i;
+        while (i < len) {
+            if (text[i] == '*' || text[i] == '`') break;
+            i++;
+        }
+        int runLen = i - runStart;
+        if (runLen > 255) runLen = 255;
+        memcpy(buf, text + runStart, runLen);
+        buf[runLen] = '\0';
+        totalW += gfx.textWidth(buf);
+    }
+    return totalW;
+}
+
+// ── Reflow: parse markdown blocks and word-wrap each paragraph ──
+void UIScrollTextPopup::reflow(LovyanGFX& gfx) {
+    int16_t contentW = _bodyW - TAB5_LIST_SCROLLBAR_W - 4;
+    _lineCount = 0;
+
+    // Compute line heights for each heading level
+    gfx.setTextSize(TAB5_FONT_SIZE_LG);
+    int16_t h1H = gfx.fontHeight() + 10;
+    gfx.setTextSize((_textSize + TAB5_FONT_SIZE_LG) * 0.5f);
+    int16_t h2H = gfx.fontHeight() + 8;
+    gfx.setTextSize(_textSize * 1.1f);
+    int16_t h3H = gfx.fontHeight() + 6;
+    gfx.setTextSize(_textSize);
+    int16_t normalH = gfx.fontHeight() + 4;
+    int16_t ruleH   = normalH;
+    int16_t bulletIndent = 28;
+
+    int len = strlen(_text);
+    int pos = 0;
+
+    while (pos < len && _lineCount < TAB5_SCROLLTEXT_MAX_LINES) {
+        // Find end of this source line
+        int lineEnd = pos;
+        while (lineEnd < len && _text[lineEnd] != '\n') lineEnd++;
+
+        int srcLen = lineEnd - pos;
+        const char* linePtr = _text + pos;
+
+        // ── Detect block-level markdown ──
+        uint8_t heading = 0;
+        bool bullet = false;
+        bool rule = false;
+        int contentStart = 0;
+
+        // Horizontal rule: "---", "***", "___"
+        if (srcLen >= 3) {
+            bool isRule = true;
+            char rc = 0;
+            int ruleChars = 0;
+            for (int j = 0; j < srcLen; j++) {
+                if (linePtr[j] == ' ') continue;
+                if (rc == 0) rc = linePtr[j];
+                if (linePtr[j] == rc && (rc == '-' || rc == '*' || rc == '_')) {
+                    ruleChars++;
+                } else { isRule = false; break; }
+            }
+            if (isRule && ruleChars >= 3) rule = true;
+        }
+
+        // Headings
+        if (!rule && srcLen >= 2 && linePtr[0] == '#') {
+            if (linePtr[1] == '#' && srcLen >= 3 && linePtr[2] == '#' && srcLen >= 4 && linePtr[3] == ' ') {
+                heading = 3; contentStart = 4;
+            } else if (linePtr[1] == '#' && srcLen >= 3 && linePtr[2] == ' ') {
+                heading = 2; contentStart = 3;
+            } else if (linePtr[1] == ' ') {
+                heading = 1; contentStart = 2;
+            }
+        }
+
+        // Bullet: "- " or "* "
+        if (!rule && !heading && srcLen >= 2) {
+            if ((linePtr[0] == '-' || linePtr[0] == '*') && linePtr[1] == ' ') {
+                bullet = true;
+                contentStart = 2;
+            }
+        }
+
+        // Empty line
+        if (srcLen == 0 && !rule) {
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = pos;
+            sl.length = 0;
+            sl.height = normalH / 2;
+            sl.heading = 0;
+            sl.bullet = false;
+            sl.rule = false;
+            sl.textStart = 0;
+            sl.textLength = 0;
+            _lineCount++;
+            pos = lineEnd + 1;
+            continue;
+        }
+
+        // Horizontal rule
+        if (rule) {
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = pos;
+            sl.length = srcLen;
+            sl.height = ruleH;
+            sl.heading = 0;
+            sl.bullet = false;
+            sl.rule = true;
+            sl.textStart = 0;
+            sl.textLength = 0;
+            _lineCount++;
+            pos = lineEnd + 1;
+            continue;
+        }
+
+        // Determine font size and available width
+        float fontSize;
+        int16_t lineH;
+        if (heading == 1)      { fontSize = TAB5_FONT_SIZE_LG; lineH = h1H; }
+        else if (heading == 2) { fontSize = (_textSize + TAB5_FONT_SIZE_LG) * 0.5f; lineH = h2H; }
+        else if (heading == 3) { fontSize = _textSize * 1.1f; lineH = h3H; }
+        else                   { fontSize = _textSize; lineH = normalH; }
+
+        int16_t availW = contentW;
+        if (bullet) availW -= bulletIndent;
+
+        // Word-wrap
+        const char* dispText = linePtr + contentStart;
+        int dispLen = srcLen - contentStart;
+        gfx.setTextSize(fontSize);
+
+        int dPos = 0;
+        bool firstWrap = true;
+
+        while (dPos < dispLen && _lineCount < TAB5_SCROLLTEXT_MAX_LINES) {
+            int bestBreak = -1;
+            int di = dPos;
+
+            while (di < dispLen) {
+                int runLen = di - dPos + 1;
+                if (runLen > 255) runLen = 255;
+                int16_t tw = markdownTextWidth(gfx, dispText + dPos, runLen, fontSize);
+                if (tw > availW && bestBreak >= 0) break;
+                if (dispText[di] == ' ' || dispText[di] == '-') bestBreak = di;
+                di++;
+            }
+
+            int wrapEnd, nextDPos;
+            if (di >= dispLen) {
+                wrapEnd = dispLen;
+                nextDPos = dispLen;
+            } else if (bestBreak >= dPos) {
+                wrapEnd = bestBreak + 1;
+                nextDPos = bestBreak + 1;
+            } else {
+                wrapEnd = (di > dPos) ? di : dPos + 1;
+                nextDPos = wrapEnd;
+            }
+
+            ScrollTextLine& sl = _lines[_lineCount];
+            sl.start = (dispText + dPos) - _text;
+            sl.length = wrapEnd - dPos;
+            sl.height = lineH;
+            sl.heading = firstWrap ? heading : 0;
+            sl.bullet = firstWrap ? bullet : false;
+            sl.rule = false;
+            sl.textStart = sl.start;
+            sl.textLength = sl.length;
+            _lineCount++;
+            dPos = nextDPos;
+            firstWrap = false;
+        }
+
+        pos = lineEnd + 1;
+    }
+
+    if (_lineCount == 0) {
+        _lines[0].start = 0;
+        _lines[0].length = 0;
+        _lines[0].height = normalH;
+        _lines[0].heading = 0;
+        _lines[0].bullet = false;
+        _lines[0].rule = false;
+        _lines[0].textStart = 0;
+        _lines[0].textLength = 0;
+        _lineCount = 1;
+    }
+
+    clampScroll();
+    _needsWrap = false;
+}
+
+// ── Draw a line with inline markdown spans ──
+void UIScrollTextPopup::drawMarkdownLine(LovyanGFX& gfx, const char* text,
+                                         int len, int16_t x, int16_t y,
+                                         float textSize, uint32_t defaultColor) {
+    gfx.setTextSize(textSize);
+    gfx.setTextDatum(textdatum_t::top_left);
+
+    int16_t curX = x;
+    int i = 0;
+    char buf[257];
+
+    while (i < len) {
+        // Bold: **text**
+        if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') {
+            i += 2;
+            int spanStart = i;
+            while (i < len) {
+                if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') break;
+                i++;
+            }
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextColor(rgb888(_boldColor));
+            gfx.setTextSize(textSize);
+            gfx.drawString(buf, curX, y);
+            curX += gfx.textWidth(buf);
+            if (i + 1 < len && text[i] == '*' && text[i + 1] == '*') i += 2;
+            continue;
+        }
+
+        // Code: `text`
+        if (text[i] == '`') {
+            i += 1;
+            int spanStart = i;
+            while (i < len && text[i] != '`') i++;
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextSize(textSize);
+            int16_t codeW = gfx.textWidth(buf);
+            int16_t fh = gfx.fontHeight();
+            gfx.fillRect(curX - 2, y, codeW + 4, fh, rgb888(_codeBgColor));
+            gfx.setTextColor(rgb888(_codeColor));
+            gfx.drawString(buf, curX, y);
+            curX += codeW;
+            if (i < len && text[i] == '`') i += 1;
+            continue;
+        }
+
+        // Italic: *text*
+        if (text[i] == '*') {
+            i += 1;
+            int spanStart = i;
+            while (i < len && text[i] != '*') i++;
+            int spanLen = i - spanStart;
+            if (spanLen > 255) spanLen = 255;
+            memcpy(buf, text + spanStart, spanLen);
+            buf[spanLen] = '\0';
+            gfx.setTextColor(rgb888(_italicColor));
+            gfx.setTextSize(textSize);
+            gfx.drawString(buf, curX, y);
+            curX += gfx.textWidth(buf);
+            if (i < len && text[i] == '*') i += 1;
+            continue;
+        }
+
+        // Regular text
+        int runStart = i;
+        while (i < len && text[i] != '*' && text[i] != '`') i++;
+        int runLen = i - runStart;
+        if (runLen > 255) runLen = 255;
+        memcpy(buf, text + runStart, runLen);
+        while (runLen > 0 && buf[runLen - 1] == ' ' && i >= len) runLen--;
+        buf[runLen] = '\0';
+        gfx.setTextColor(rgb888(defaultColor));
+        gfx.setTextSize(textSize);
+        gfx.drawString(buf, curX, y);
+        curX += gfx.textWidth(buf);
+    }
+}
+
+// ── Draw the popup ──
+void UIScrollTextPopup::draw(LovyanGFX& gfx) {
+    if (!_visible) return;
+
+    // Compute layout on first draw
+    if (_needsLayout) {
+        computeLayout();
+        _needsFrameRedraw = true;
+    }
+
+    // Reflow text if needed
+    if (_needsWrap) {
+        reflow(gfx);
+    }
+
+    // ── Draw static frame directly to display (only when needed) ──
+    // This avoids spriting the entire popup (~1260×616) every scroll frame.
+    if (_needsFrameRedraw) {
+        // Shadow
+        gfx.fillSmoothRoundRect(_popX + 4, _popY + 4, _popW, _popH, 8, rgb888(0x0A0A14));
+
+        // Background
+        gfx.fillSmoothRoundRect(_popX, _popY, _popW, _popH, 8, rgb888(_bgColor));
+
+        // Border
+        gfx.drawRoundRect(_popX, _popY, _popW, _popH, 8, rgb888(_borderColor));
+
+        // Title
+        gfx.setTextSize(TAB5_FONT_SIZE_LG);
+        gfx.setTextDatum(textdatum_t::top_center);
+        gfx.setTextColor(rgb888(_titleColor));
+        gfx.drawString(_title, _popX + _popW / 2, _titleY);
+
+        // Divider below title
+        int16_t divY = _titleY + 34;
+        gfx.drawFastHLine(_popX + TAB5_PADDING, divY,
+                          _popW - TAB5_PADDING * 2, rgb888(Tab5Theme::DIVIDER));
+
+        // Close button
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        int16_t labelW = gfx.textWidth(_btnLabel);
+        _btnW = labelW + 60;
+        if (_btnW < 120) _btnW = 120;
+        _btnX = _popX + (_popW - _btnW) / 2;
+
+        uint32_t btnBg = _btnPressed ? rgb888(darken(_btnColor)) : rgb888(_btnColor);
+        gfx.fillSmoothRoundRect(_btnX, _btnY, _btnW, _btnH, 6, btnBg);
+
+        gfx.setTextSize(TAB5_FONT_SIZE_MD);
+        gfx.setTextDatum(textdatum_t::middle_center);
+        gfx.setTextColor(rgb888(Tab5Theme::TEXT_PRIMARY));
+        gfx.drawString(_btnLabel, _btnX + _btnW / 2, _btnY + _btnH / 2);
+
+        _needsFrameRedraw = false;
+    }
+
+    // ── Sprite-buffered scrollable body (much smaller than full popup) ──
+    M5Canvas* spr = acquireSprite(&gfx, _bodyW, _bodyH);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t bodyOx = spr ? 0 : _bodyX;
+    int16_t bodyOy = spr ? 0 : _bodyY;
+    int16_t innerW = _bodyW - TAB5_LIST_SCROLLBAR_W - 4;
+
+    // Clear body background
+    dst.fillRect(bodyOx, bodyOy, _bodyW, _bodyH, rgb888(_bgColor));
+
+    // Clip to body area (only needed for direct rendering)
+    if (!spr) dst.setClipRect(_bodyX, _bodyY, _bodyW, _bodyH);
+
+    int16_t bulletIndent = 28;
+    int16_t curY = bodyOy - _scrollOffset;
+
+    for (int i = 0; i < _lineCount; i++) {
+        const ScrollTextLine& sl = _lines[i];
+        int16_t lineY = curY;
+        curY += sl.height;
+
+        // Skip lines outside visible area
+        if (lineY + sl.height <= bodyOy) continue;
+        if (lineY >= bodyOy + _bodyH) break;
+
+        // Horizontal rule
+        if (sl.rule) {
+            int16_t ruleY = lineY + sl.height / 2;
+            dst.drawFastHLine(bodyOx, ruleY, innerW, rgb888(_ruleColor));
+            continue;
+        }
+
+        // Empty line (spacer)
+        if (sl.textLength == 0) continue;
+
+        // Determine text properties
+        float fontSize;
+        uint32_t textColor;
+        int16_t drawX = bodyOx;
+
+        if (sl.heading == 1) {
+            fontSize = TAB5_FONT_SIZE_LG;
+            textColor = _headingColor;
+        } else if (sl.heading == 2) {
+            fontSize = (_textSize + TAB5_FONT_SIZE_LG) * 0.5f;
+            textColor = _headingColor;
+        } else if (sl.heading == 3) {
+            fontSize = _textSize * 1.1f;
+            textColor = _headingColor;
+        } else {
+            fontSize = _textSize;
+            textColor = _textColor;
+        }
+
+        // Bullet prefix
+        if (sl.bullet) {
+            dst.setTextSize(fontSize);
+            int16_t bulletR = 4;
+            int16_t bulletCX = bodyOx + 10;
+            int16_t bulletCY = lineY + dst.fontHeight() / 2;
+            dst.fillCircle(bulletCX, bulletCY, bulletR, rgb888(_bulletColor));
+            drawX = bodyOx + bulletIndent;
+        }
+        // Continuation lines of bullets
+        if (!sl.bullet && i > 0 && _lines[i - 1].bullet && sl.heading == 0) {
+            drawX = bodyOx + bulletIndent;
+        }
+
+        // Draw text with inline markdown
+        drawMarkdownLine(dst, _text + sl.textStart, sl.textLength,
+                         drawX, lineY, fontSize, textColor);
+
+        // Heading underline for H1
+        if (sl.heading == 1) {
+            int16_t ulY = lineY + sl.height - 4;
+            dst.drawFastHLine(bodyOx, ulY, innerW, rgb888(_ruleColor));
+        }
+    }
+
+    if (!spr) dst.clearClipRect();
+
+    // Scrollbar
+    int16_t contentH = totalContentHeight();
+    if (contentH > _bodyH) {
+        int16_t sbX = bodyOx + _bodyW - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbAreaH = _bodyH;
+
+        // Track
+        dst.fillRect(sbX, bodyOy, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                     rgb888(darken(_bgColor, 60)));
+
+        // Thumb
+        float visibleRatio = (float)_bodyH / (float)contentH;
+        int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+        if (thumbH < 20) thumbH = 20;
+
+        int16_t ms = maxScroll();
+        float scrollRatio = (ms > 0) ? (float)_scrollOffset / (float)ms : 0.0f;
+        int16_t thumbY = bodyOy + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+        dst.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+                                 3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    // Push body sprite
+    if (spr) {
+        spr->pushSprite(&gfx, _bodyX, _bodyY);
+    }
+
+    _dirty = false;
+}
+
+void UIScrollTextPopup::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    _touchDownX = tx;
+    _touchDownY = ty;
+    _wasDrag = false;
+
+    if (hitTestBtn(tx, ty)) {
+        _btnPressed = true;
+        _needsFrameRedraw = true;
+        _dirty = true;
+    } else if (hitTestBody(tx, ty)) {
+        _dragging = true;
+        _touchStartY = ty;
+        _scrollStart = _scrollOffset;
+    }
+}
+
+void UIScrollTextPopup::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_dragging) {
+        int16_t totalDy = ty - _touchDownY;
+        if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+            _wasDrag = true;
+            // Cancel button press if drag started
+            _btnPressed = false;
+        }
+        if (_wasDrag) {
+            int16_t dy = _touchStartY - ty;
+            _scrollOffset = _scrollStart + dy;
+            clampScroll();
+            _dirty = true;
+        }
+    }
+}
+
+void UIScrollTextPopup::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_visible) return;
+
+    if (_btnPressed && !_wasDrag && hitTestBtn(tx, ty)) {
+        // Close button tapped
+        _btnPressed = false;
+        hide();
+        if (_onDismiss) _onDismiss(TouchEvent::TOUCH_RELEASE);
+    } else if (!hitTest(tx, ty) && !_wasDrag) {
+        // Tap outside popup — dismiss
+        _btnPressed = false;
+        hide();
+        if (_onDismiss) _onDismiss(TouchEvent::TOUCH_RELEASE);
+    } else {
+        // Scroll drag ended or non-button touch — only redraw if
+        // button visual state actually changed.
+        if (_btnPressed) {
+            _btnPressed = false;
+            _needsFrameRedraw = true;
+            _dirty = true;
+        }
+    }
+
+    _dragging = false;
+    _wasDrag = false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UIList
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -5391,6 +6046,8 @@ void UIManager::update() {
     lgfx::touch_point_t tp;
     uint_fast8_t count = _gfx.getTouch(&tp, 1);
 
+    bool modalJustClosed = false;
+
     if (count > 0) {
         int16_t tx = (int16_t)tp.x;
         int16_t ty = (int16_t)tp.y;
@@ -5482,6 +6139,11 @@ void UIManager::update() {
             // visible flash.  Instead, drawDirtyChildren() will repaint only
             // the affected children without a background clear.
             if (wasModal && !_touchedElem->isVisible()) {
+                // Begin a batched write so the erase + subsequent dirty
+                // redraws arrive as one display transaction (no flash).
+                _gfx.startWrite();
+                modalJustClosed = true;
+
                 // Erase the modal footprint (including shadow offset)
                 int16_t mx = _touchedElem->getX();
                 int16_t my = _touchedElem->getY();
@@ -5537,4 +6199,10 @@ void UIManager::update() {
 
     // Redraw dirty elements
     drawDirty();
+
+    // End the batched write started during modal close so erase + redraws
+    // are flushed to the display as a single transaction.
+    if (modalJustClosed) {
+        _gfx.endWrite();
+    }
 }

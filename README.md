@@ -27,6 +27,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIRadioButton** | Selectable radio button with label, managed by UIRadioGroup for mutual exclusion |
 | **UIDropdown** | Compact dropdown selector with scrollable list overlay, icons, and all UIList features |
 | **UIColumnList** | Multi-column list with sortable headers, per-cell text/color/icon, scrolling, and selection |
+| **UIScrollTextPopup** | Large modal popup with scrollable Markdown text, Close button, and tap-outside dismiss |
 | **UITextArea** | Multi-line text input with word wrapping, touch scrolling, and tap-to-place cursor |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
@@ -150,6 +151,7 @@ void setup() {
 | **UIKeyboard** | Repositions to screen bottom, keys scale to fit width |
 | **UIInfoPopup** | Auto-sizes and centers within actual screen bounds |
 | **UIConfirmPopup** | Auto-sizes and centers within actual screen bounds |
+| **UIScrollTextPopup** | Fills between title bar and status bar in any orientation |
 | **UIDropdown** | Overflow detection uses actual screen height |
 | **UIManager** | Content area bottom defaults to actual screen height |
 
@@ -215,7 +217,8 @@ Tab5UI/
 │   ├── screenshot7_tab_list.png
 │   ├── screenshot8_confirm_popup.png
 │   ├── screenshot9_tab_text.png
-│   └── screenshot10_column_list.png
+│   ├── screenshot10_column_list.png
+│   └── screenshot11_scroll_text_popup.png
 └── examples/
     ├── Tab5UI_Demo/
     │   └── Tab5UI_Demo.ino           # Full demo sketch (landscape)
@@ -229,6 +232,8 @@ Tab5UI/
     │   └── Tab5UI_TextArea_Demo.ino   # Multi-line text input demo (portrait)
     └── Tab5UI_ColumnList_Demo/
         └── Tab5UI_ColumnList_Demo.ino # Column list demo (landscape)
+    └── Tab5UI_ScrollTextPopup_Demo/
+        └── Tab5UI_ScrollTextPopup_Demo.ino # Scroll text popup demo (landscape)
 ```
 
 ---
@@ -241,6 +246,7 @@ Tab5UI/
 |---|---|
 | ![Initial state](screenshots/screenshot1_initial.png) | ![List demo](screenshots/screenshot5_list.png) |
 | ![Tab Controls](screenshots/screenshot6_tab_controls.png) | ![Column List](screenshots/screenshot10_column_list.png) |
+| ![Scroll Text Popup](screenshots/screenshot11_scroll_text_popup.png) | |
 
 ---
 

@@ -27,6 +27,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UIRadioButton** | Selectable radio button with label, managed by UIRadioGroup for mutual exclusion |
 | **UIDropdown** | Compact dropdown selector with scrollable list overlay, icons, and all UIList features |
 | **UIColumnList** | Multi-column list with sortable headers, per-cell text/color/icon, scrolling, and selection |
+| **UIScrollTextPopup** | Large modal popup with scrollable Markdown text, Close button, and tap-outside dismiss |
 | **UITextArea** | Multi-line text input with word wrapping, touch scrolling, and tap-to-place cursor |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
@@ -38,7 +39,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
   - [[Widgets – Basic]] — Label, Button, IconButton, Slider, TitleBar, StatusBar, TextRow, Icons
   - [[Widgets – Input]] — TextInput, Keyboard, TextArea
   - [[Widgets – Lists]] — List, Dropdown, ColumnList
-  - [[Widgets – Containers & Popups]] — TabView, Menu, InfoPopup, ConfirmPopup, ScrollText
+  - [[Widgets – Containers & Popups]] — TabView, Menu, InfoPopup, ConfirmPopup, ScrollText, ScrollTextPopup
   - [[Widgets – Selection]] — Checkbox, RadioButton / RadioGroup
 - [[UIManager]] — Element management, touch dispatch, screen sleep
 - [[Rendering]] — Flicker-free sprite buffering and render modes

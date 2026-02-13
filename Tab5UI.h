@@ -1216,6 +1216,137 @@ private:
 };
 
 /*******************************************************************************
+ * UIScrollTextPopup — Large modal popup with scrollable Markdown text
+ *
+ * Usage:
+ *   UIScrollTextPopup helpPopup("Help", "# Welcome\n\nSome **bold** text.");
+ *   helpPopup.show();
+ *
+ * The popup fills the available screen area between the title bar and status
+ * bar.  It displays a title at the top, scrollable Markdown-rendered text in
+ * the body, and a single Close button at the bottom.  Supports all the same
+ * Markdown syntax as UIScrollText:
+ *   # Heading 1, ## Heading 2, ### Heading 3
+ *   **bold**, *italic*, `code`
+ *   - bullets, ---, ***
+ *
+ * The text body is touch-scrollable with a scrollbar.  Tapping Close or
+ * outside the popup dismisses it.  The popup is modal.
+ ******************************************************************************/
+
+class UIScrollTextPopup : public UIElement {
+public:
+    UIScrollTextPopup(const char* title   = "Info",
+                      const char* content = "");
+
+    void draw(LovyanGFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    bool isPopup() const override { return true; }
+
+    void show();
+    void hide();
+    bool isOpen() const { return _visible; }
+
+    void setTitle(const char* title);
+    void setText(const char* text);
+    const char* getText() const { return _text; }
+    void setButtonLabel(const char* label);
+
+    void setOnDismiss(TouchCallback cb) { _onDismiss = cb; }
+
+    // Color setters
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTitleColor(uint32_t c)     { _titleColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setBtnColor(uint32_t c)       { _btnColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+
+    // Markdown colors
+    void setHeadingColor(uint32_t c)   { _headingColor = c; _dirty = true; }
+    void setBoldColor(uint32_t c)      { _boldColor = c; _dirty = true; }
+    void setItalicColor(uint32_t c)    { _italicColor = c; _dirty = true; }
+    void setCodeColor(uint32_t c)      { _codeColor = c; _dirty = true; }
+    void setCodeBgColor(uint32_t c)    { _codeBgColor = c; _dirty = true; }
+    void setRuleColor(uint32_t c)      { _ruleColor = c; _dirty = true; }
+    void setBulletColor(uint32_t c)    { _bulletColor = c; _dirty = true; }
+
+    // Scroll control
+    void scrollTo(int16_t offset);
+    void scrollToTop()               { scrollTo(0); }
+    void scrollToBottom();
+
+    void setTextSize(float s)        { _textSize = s; _needsWrap = true; _dirty = true; }
+
+private:
+    char     _title[64];
+    char     _text[TAB5_SCROLLTEXT_MAX_LEN];
+    char     _btnLabel[32];
+    float    _textSize       = TAB5_FONT_SIZE_MD;
+    bool     _btnPressed     = false;
+
+    // Layout (computed in draw)
+    bool     _needsLayout    = true;
+    bool     _needsFrameRedraw = true;         // Redraw static frame (title, border, button)
+    int16_t  _popX, _popY, _popW, _popH;     // Popup frame
+    int16_t  _titleY;                          // Title text Y
+    int16_t  _bodyX, _bodyY, _bodyW, _bodyH;  // Scrollable text body
+    int16_t  _btnX, _btnY, _btnW, _btnH;      // Close button
+
+    // Colors
+    uint32_t _bgColor        = Tab5Theme::SURFACE;
+    uint32_t _titleColor     = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _textColor      = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _btnColor       = Tab5Theme::PRIMARY;
+    uint32_t _borderColor    = Tab5Theme::BORDER;
+
+    // Markdown colors
+    uint32_t _headingColor   = Tab5Theme::PRIMARY;
+    uint32_t _boldColor      = Tab5Theme::ACCENT;
+    uint32_t _italicColor    = Tab5Theme::TEXT_SECONDARY;
+    uint32_t _codeColor      = Tab5Theme::SECONDARY;
+    uint32_t _codeBgColor    = 0x0A0A1E;
+    uint32_t _ruleColor      = Tab5Theme::DIVIDER;
+    uint32_t _bulletColor    = Tab5Theme::PRIMARY;
+
+    TouchCallback _onDismiss = nullptr;
+
+    // Word-wrap cache (reuses ScrollTextLine struct)
+    bool     _needsWrap      = true;
+    int      _lineCount      = 0;
+    ScrollTextLine _lines[TAB5_SCROLLTEXT_MAX_LINES];
+
+    // Scroll state
+    int16_t  _scrollOffset   = 0;
+
+    // Touch-drag state
+    bool     _dragging       = false;
+    int16_t  _touchStartY    = 0;
+    int16_t  _scrollStart    = 0;
+    int16_t  _touchDownY     = 0;
+    int16_t  _touchDownX     = 0;
+    bool     _wasDrag        = false;
+    static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    int16_t  totalContentHeight() const;
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    void     computeLayout();
+    void     reflow(LovyanGFX& gfx);
+
+    void     drawMarkdownLine(LovyanGFX& gfx, const char* text, int len,
+                              int16_t x, int16_t y, float textSize,
+                              uint32_t defaultColor);
+    int16_t  markdownTextWidth(LovyanGFX& gfx, const char* text, int len,
+                               float textSize);
+
+    bool hitTestBtn(int16_t tx, int16_t ty) const;
+    bool hitTestBody(int16_t tx, int16_t ty) const;
+};
+
+/*******************************************************************************
  * UIList — Scrollable list with selectable items
  *
  * Usage:

@@ -12,9 +12,16 @@ All notable changes to the Tab5UI library are documented here.
   - Sort indicator (▲/▼ triangle) drawn in the active column header.
   - Per-column `sortable` flag; icon-only columns can be excluded from sorting.
   - Sprite-buffered rendering for flicker-free display.
+- **UIScrollTextPopup** — Large modal popup (fills between title bar and status bar) with:
+  - Scrollable text body rendered with full **Markdown** support (headings, bold, italic, code, bullets, horizontal rules).
+  - Touch-drag scrolling with scrollbar.
+  - Single configurable Close button.
+  - Tap outside popup to dismiss.
+  - Full color customization for all Markdown elements.
 
 ### New Examples
 - **Tab5UI_ColumnList_Demo** — 20-row server dashboard showcasing multi-column layout, per-cell colored text, icons, disabled rows, and interactive column sorting.
+- **Tab5UI_ScrollTextPopup_Demo** — Three buttons triggering Help, Release Notes, and License popups with rich Markdown content.
 
 ## [1.1.1] — 2026-02-11
 
