@@ -4092,6 +4092,592 @@ void UIDropdown::handleTouchUp(int16_t tx, int16_t ty) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  UIColumnList
+// ═════════════════════════════════════════════════════════════════════════════
+
+UIColumnList::UIColumnList(int16_t x, int16_t y, int16_t w, int16_t h,
+                           uint32_t bgColor, uint32_t textColor, uint32_t selectColor)
+    : UIElement(x, y, w, h)
+    , _bgColor(bgColor), _textColor(textColor), _selectColor(selectColor)
+{
+}
+
+// ── Column management ───────────────────────────────────────────────────────
+
+int UIColumnList::addColumn(const char* header, int16_t width, textdatum_t align) {
+    if (_colCount >= TAB5_COLLIST_MAX_COLS) return -1;
+    UIColumnDef& col = _columns[_colCount];
+    strncpy(col.header, header, sizeof(col.header) - 1);
+    col.header[sizeof(col.header) - 1] = '\0';
+    col.width = width;
+    col.align = align;
+    _dirty = true;
+    return _colCount++;
+}
+
+void UIColumnList::setColumnHeader(int col, const char* header) {
+    if (col < 0 || col >= _colCount) return;
+    strncpy(_columns[col].header, header, sizeof(_columns[0].header) - 1);
+    _columns[col].header[sizeof(_columns[0].header) - 1] = '\0';
+    _dirty = true;
+}
+
+void UIColumnList::setColumnWidth(int col, int16_t width) {
+    if (col < 0 || col >= _colCount) return;
+    _columns[col].width = width;
+    _dirty = true;
+}
+
+void UIColumnList::setColumnAlign(int col, textdatum_t align) {
+    if (col < 0 || col >= _colCount) return;
+    _columns[col].align = align;
+    _dirty = true;
+}
+
+void UIColumnList::setColumnSortable(int col, bool sortable) {
+    if (col < 0 || col >= _colCount) return;
+    _columns[col].sortable = sortable;
+}
+
+// ── Row management ──────────────────────────────────────────────────────────
+
+int UIColumnList::addRow() {
+    if (_rowCount >= TAB5_LIST_MAX_ITEMS) return -1;
+    _rows[_rowCount] = UIColumnListRow();  // reset to defaults
+    _sortOrderDirty = true;
+    _dirty = true;
+    return _rowCount++;
+}
+
+void UIColumnList::removeRow(int index) {
+    if (index < 0 || index >= _rowCount) return;
+    for (int i = index; i < _rowCount - 1; i++) {
+        _rows[i] = _rows[i + 1];
+    }
+    _rowCount--;
+    if (_selectedIndex == index) _selectedIndex = -1;
+    else if (_selectedIndex > index) _selectedIndex--;
+    _sortOrderDirty = true;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIColumnList::clearRows() {
+    _rowCount = 0;
+    _selectedIndex = -1;
+    _scrollOffset = 0;
+    _sortOrderDirty = true;
+    _dirty = true;
+}
+
+void UIColumnList::setRowEnabled(int row, bool enabled) {
+    if (row < 0 || row >= _rowCount) return;
+    _rows[row].enabled = enabled;
+    _dirty = true;
+}
+
+// ── Cell content ────────────────────────────────────────────────────────────
+
+void UIColumnList::setCellText(int row, int col, const char* text) {
+    if (row < 0 || row >= _rowCount || col < 0 || col >= _colCount) return;
+    UIColumnCell& cell = _rows[row].cells[col];
+    strncpy(cell.text, text, sizeof(cell.text) - 1);
+    cell.text[sizeof(cell.text) - 1] = '\0';
+    cell.iconData = nullptr;
+    cell.iconSize = 0;
+    cell.useCustomColor = false;
+    _dirty = true;
+}
+
+void UIColumnList::setCellText(int row, int col, const char* text, uint32_t textColor) {
+    if (row < 0 || row >= _rowCount || col < 0 || col >= _colCount) return;
+    UIColumnCell& cell = _rows[row].cells[col];
+    strncpy(cell.text, text, sizeof(cell.text) - 1);
+    cell.text[sizeof(cell.text) - 1] = '\0';
+    cell.iconData = nullptr;
+    cell.iconSize = 0;
+    cell.textColor = textColor;
+    cell.useCustomColor = true;
+    _dirty = true;
+}
+
+void UIColumnList::setCellIcon(int row, int col,
+                               const uint8_t* iconData, uint32_t iconSize) {
+    if (row < 0 || row >= _rowCount || col < 0 || col >= _colCount) return;
+    UIColumnCell& cell = _rows[row].cells[col];
+    cell.iconData = iconData;
+    cell.iconSize = iconSize;
+    cell.text[0] = '\0';
+    _dirty = true;
+}
+
+void UIColumnList::clearCell(int row, int col) {
+    if (row < 0 || row >= _rowCount || col < 0 || col >= _colCount) return;
+    _rows[row].cells[col] = UIColumnCell();
+    _dirty = true;
+}
+
+const char* UIColumnList::getCellText(int row, int col) const {
+    if (row < 0 || row >= _rowCount || col < 0 || col >= _colCount) return "";
+    return _rows[row].cells[col].text;
+}
+
+// ── Selection ───────────────────────────────────────────────────────────────
+
+const char* UIColumnList::getSelectedText() const {
+    if (_selectedIndex < 0 || _selectedIndex >= _rowCount) return "";
+    return _rows[_selectedIndex].cells[0].text;
+}
+
+void UIColumnList::setSelectedIndex(int index) {
+    if (index < -1 || index >= _rowCount) return;
+    _selectedIndex = index;
+    _dirty = true;
+}
+
+void UIColumnList::clearSelection() {
+    _selectedIndex = -1;
+    _dirty = true;
+}
+
+// ── Scroll ──────────────────────────────────────────────────────────────────
+
+void UIColumnList::scrollTo(int16_t offset) {
+    _scrollOffset = offset;
+    clampScroll();
+    _dirty = true;
+}
+
+void UIColumnList::scrollToRow(int index) {
+    if (index < 0 || index >= _rowCount) return;
+    int16_t itemTop = index * _itemH;
+    int16_t visibleH = _h - headerHeight();
+
+    if (itemTop < _scrollOffset) {
+        _scrollOffset = itemTop;
+    } else if (itemTop + _itemH > _scrollOffset + visibleH) {
+        _scrollOffset = itemTop + _itemH - visibleH;
+    }
+    clampScroll();
+    _dirty = true;
+}
+
+int16_t UIColumnList::maxScroll() const {
+    int16_t visibleH = _h - headerHeight();
+    int16_t contentH = totalContentHeight();
+    if (contentH <= visibleH) return 0;
+    return contentH - visibleH;
+}
+
+void UIColumnList::clampScroll() {
+    int16_t ms = maxScroll();
+    if (_scrollOffset < 0) _scrollOffset = 0;
+    if (_scrollOffset > ms) _scrollOffset = ms;
+}
+
+int UIColumnList::rowAtY(int16_t ty) const {
+    int16_t hdrH = headerHeight();
+    int16_t bodyTop = _y + hdrH;
+    if (ty < bodyTop || ty >= _y + _h) return -1;
+    int16_t relY = ty - bodyTop + _scrollOffset;
+    int idx = relY / _itemH;
+    if (idx < 0 || idx >= _rowCount) return -1;
+    return idx;
+}
+
+int16_t UIColumnList::columnX(int col) const {
+    int16_t cx = 0;
+    for (int i = 0; i < col && i < _colCount; i++) {
+        cx += _columns[i].width;
+    }
+    return cx;
+}
+
+void UIColumnList::resolveColumnWidths() {
+    // Count auto-width columns and sum fixed widths
+    int autoCount = 0;
+    int16_t fixedSum = 0;
+    int16_t available = _w - TAB5_LIST_SCROLLBAR_W - 2;  // inside border
+
+    for (int i = 0; i < _colCount; i++) {
+        if (_columns[i].width <= 0) {
+            autoCount++;
+        } else {
+            fixedSum += _columns[i].width;
+        }
+    }
+
+    // Distribute remaining space to auto-width columns
+    if (autoCount > 0) {
+        int16_t remaining = available - fixedSum;
+        if (remaining < autoCount * 40) remaining = autoCount * 40;  // minimum
+        int16_t autoW = remaining / autoCount;
+
+        for (int i = 0; i < _colCount; i++) {
+            if (_columns[i].width <= 0) {
+                _columns[i].width = autoW;
+            }
+        }
+    }
+}
+
+// ── Sorting ─────────────────────────────────────────────────────────────────────────────
+
+void UIColumnList::sortByColumn(int col, SortDir dir) {
+    if (col < 0 || col >= _colCount) return;
+    if (!_columns[col].sortable) return;
+    _sortCol = col;
+    _sortDir = dir;
+    _sortOrderDirty = true;
+    _scrollOffset = 0;
+    _selectedIndex = -1;   // Selection indices would be stale
+    _dirty = true;
+}
+
+void UIColumnList::clearSort() {
+    _sortCol = -1;
+    _sortDir = SortDir::NONE;
+    _sortOrderDirty = true;
+    _scrollOffset = 0;
+    _selectedIndex = -1;
+    _dirty = true;
+}
+
+void UIColumnList::rebuildSortOrder() {
+    // Initialize identity mapping
+    for (int i = 0; i < _rowCount; i++) {
+        _sortOrder[i] = i;
+    }
+
+    if (_sortCol < 0 || _sortCol >= _colCount || _sortDir == SortDir::NONE) {
+        _sortOrderDirty = false;
+        return;
+    }
+
+    int col = _sortCol;
+    bool asc = (_sortDir == SortDir::ASC);
+
+    // Simple insertion sort (fine for <= 64 items, no dynamic allocation)
+    for (int i = 1; i < _rowCount; i++) {
+        int key = _sortOrder[i];
+        int j = i - 1;
+        while (j >= 0) {
+            int cmp = strcasecmp(_rows[key].cells[col].text,
+                                _rows[_sortOrder[j]].cells[col].text);
+            if (asc ? (cmp < 0) : (cmp > 0)) {
+                _sortOrder[j + 1] = _sortOrder[j];
+                j--;
+            } else {
+                break;
+            }
+        }
+        _sortOrder[j + 1] = key;
+    }
+
+    _sortOrderDirty = false;
+}
+
+int UIColumnList::colAtX(int16_t tx) const {
+    int16_t cx = _x + 1;  // inside border
+    for (int c = 0; c < _colCount; c++) {
+        int16_t colW = _columns[c].width;
+        if (tx >= cx && tx < cx + colW) return c;
+        cx += colW;
+    }
+    return -1;
+}
+
+// ── Drawing ─────────────────────────────────────────────────────────────────
+
+void UIColumnList::draw(LovyanGFX& gfx) {
+    if (!_visible) return;
+
+    // Rebuild sort order if needed
+    if (_sortOrderDirty) rebuildSortOrder();
+
+    // Auto-scale item height from text size if enabled
+    if (_autoScale) {
+        gfx.setTextSize(_textSize);
+        int16_t fh = (int16_t)(gfx.fontHeight() * _textSize);
+        _itemH = fh + TAB5_PADDING * 2;
+        if (_itemH < 32) _itemH = 32;
+    }
+
+    // Resolve any auto-width columns
+    resolveColumnWidths();
+
+    int16_t hdrH = headerHeight();
+    int16_t bodyH = _h - hdrH;
+    int16_t iconSize = _itemH - TAB5_PADDING;
+    if (iconSize < 16) iconSize = 16;
+
+    // ── Sprite-buffered rendering ──
+    M5Canvas* spr = acquireSprite(&gfx, _w, _h);
+    LovyanGFX& dst = spr ? (LovyanGFX&)*spr : gfx;
+    int16_t ox = spr ? 0 : _x;
+    int16_t oy = spr ? 0 : _y;
+
+    // Background
+    dst.fillRect(ox, oy, _w, _h, rgb888(_bgColor));
+
+    // Border
+    dst.drawRect(ox, oy, _w, _h, rgb888(_borderColor));
+
+    // ── Header row ──
+    if (_showHeader && _colCount > 0) {
+        dst.fillRect(ox + 1, oy + 1, _w - 2, hdrH - 1, rgb888(_headerBgColor));
+
+        // Header divider
+        dst.drawFastHLine(ox + 1, oy + hdrH - 1, _w - 2, rgb888(_borderColor));
+
+        dst.setTextSize(_headerTextSize);
+
+        int16_t cx = ox + 1;
+        for (int c = 0; c < _colCount; c++) {
+            int16_t colW = _columns[c].width;
+
+            // Column dividers
+            if (_showColDividers && c > 0) {
+                dst.drawFastVLine(cx, oy + 1, hdrH - 2, rgb888(_dividerColor));
+            }
+
+            // Header text
+            dst.setTextDatum(_columns[c].align);
+            dst.setTextColor(rgb888(_headerTextColor));
+
+            // Reserve space for sort indicator on the right side of the header
+            int16_t indicatorSpace = (_sortEnabled && _columns[c].sortable) ? 18 : 0;
+
+            int16_t tx;
+            if (_columns[c].align == textdatum_t::middle_center) {
+                tx = cx + (colW - indicatorSpace) / 2;
+            } else if (_columns[c].align == textdatum_t::middle_right) {
+                tx = cx + colW - TAB5_PADDING - indicatorSpace;
+            } else {
+                tx = cx + TAB5_PADDING;
+            }
+            dst.drawString(_columns[c].header, tx, oy + hdrH / 2);
+
+            // Sort indicator (▲ / ▼) for active sort column
+            if (_sortEnabled && c == _sortCol && _sortDir != SortDir::NONE) {
+                int16_t arrowX = cx + colW - 14;
+                int16_t arrowY = oy + hdrH / 2;
+                int16_t as = 4;  // arrow half-size
+                uint32_t arrowColor = rgb888(_sortIndicatorColor);
+                if (_sortDir == SortDir::ASC) {
+                    // ▲ up
+                    dst.fillTriangle(arrowX, arrowY - as,
+                                     arrowX - as, arrowY + as,
+                                     arrowX + as, arrowY + as,
+                                     arrowColor);
+                } else {
+                    // ▼ down
+                    dst.fillTriangle(arrowX - as, arrowY - as,
+                                     arrowX + as, arrowY - as,
+                                     arrowX, arrowY + as,
+                                     arrowColor);
+                }
+            }
+
+            cx += colW;
+        }
+    }
+
+    // ── Body (scrollable rows) ──
+    int16_t bodyY = oy + hdrH;
+    dst.setClipRect(ox + 1, bodyY, _w - 2, bodyH);
+
+    for (int i = 0; i < _rowCount; i++) {
+        int dataIdx = _sortOrder[i];   // Map display row -> data row
+        int16_t rowY = bodyY + (i * _itemH) - _scrollOffset;
+
+        // Skip rows outside visible area
+        if (rowY + _itemH <= bodyY || rowY >= bodyY + bodyH) continue;
+
+        // Selected highlight
+        if (i == _selectedIndex) {
+            dst.fillRect(ox + 1, rowY, _w - TAB5_LIST_SCROLLBAR_W - 2,
+                         _itemH, rgb888(_selectColor));
+        }
+
+        // Draw each cell
+        int16_t cx = ox + 1;
+        for (int c = 0; c < _colCount; c++) {
+            int16_t colW = _columns[c].width;
+            const UIColumnCell& cell = _rows[dataIdx].cells[c];
+
+            // Column dividers in body
+            if (_showColDividers && c > 0) {
+                dst.drawFastVLine(cx, rowY, _itemH, rgb888(_dividerColor));
+            }
+
+            if (cell.iconData != nullptr && cell.iconSize > 0) {
+                // ── Draw PROGMEM PNG icon centered in cell ──
+                int16_t icoW = iconSize;
+                int16_t icoH = iconSize;
+                int16_t icoX = cx + (colW - icoW) / 2;
+                int16_t icoY = rowY + (_itemH - icoH) / 2;
+                dst.drawPng(cell.iconData, cell.iconSize,
+                            icoX, icoY, icoW, icoH);
+            } else if (cell.text[0] != '\0') {
+                // ── Draw text ──
+                dst.setTextSize(_textSize);
+                dst.setTextDatum(_columns[c].align);
+
+                uint32_t tc;
+                if (!_rows[dataIdx].enabled) {
+                    tc = rgb888(Tab5Theme::TEXT_DISABLED);
+                } else if (cell.useCustomColor) {
+                    tc = rgb888(cell.textColor);
+                } else if (i == _selectedIndex) {
+                    tc = rgb888(Tab5Theme::TEXT_PRIMARY);
+                } else {
+                    tc = rgb888(_textColor);
+                }
+                dst.setTextColor(tc);
+
+                int16_t tx;
+                if (_columns[c].align == textdatum_t::middle_center) {
+                    tx = cx + colW / 2;
+                } else if (_columns[c].align == textdatum_t::middle_right) {
+                    tx = cx + colW - TAB5_PADDING;
+                } else {
+                    tx = cx + TAB5_PADDING;
+                }
+                dst.drawString(cell.text, tx, rowY + _itemH / 2);
+            }
+
+            cx += colW;
+        }
+
+        // Row divider
+        if (i < _rowCount - 1) {
+            int16_t divY = rowY + _itemH - 1;
+            dst.drawFastHLine(ox + 1, divY,
+                              _w - TAB5_LIST_SCROLLBAR_W - 2,
+                              rgb888(_dividerColor));
+        }
+    }
+
+    dst.clearClipRect();
+
+    // ── Scrollbar ──
+    int16_t contentH = totalContentHeight();
+    if (contentH > bodyH) {
+        int16_t sbX = ox + _w - TAB5_LIST_SCROLLBAR_W - 1;
+        int16_t sbAreaH = bodyH - 2;
+
+        // Track
+        dst.fillRect(sbX, bodyY + 1, TAB5_LIST_SCROLLBAR_W, sbAreaH,
+                     rgb888(darken(_bgColor, 60)));
+
+        // Thumb
+        float visibleRatio = (float)bodyH / (float)contentH;
+        int16_t thumbH = (int16_t)(sbAreaH * visibleRatio);
+        if (thumbH < 20) thumbH = 20;
+
+        float scrollRatio = maxScroll() > 0
+                          ? (float)_scrollOffset / (float)maxScroll()
+                          : 0.0f;
+        int16_t thumbY = bodyY + 1 + (int16_t)((sbAreaH - thumbH) * scrollRatio);
+
+        dst.fillSmoothRoundRect(sbX, thumbY, TAB5_LIST_SCROLLBAR_W, thumbH,
+                                 3, rgb888(Tab5Theme::TEXT_DISABLED));
+    }
+
+    // Push sprite
+    if (spr) {
+        spr->pushSprite(&gfx, _x, _y);
+    }
+
+    _dirty = false;
+}
+
+// ── Touch handling ──────────────────────────────────────────────────────────
+
+void UIColumnList::handleTouchDown(int16_t tx, int16_t ty) {
+    if (!hitTest(tx, ty)) return;
+
+    _headerTap = false;
+
+    // Check if touch is on the header row
+    if (_showHeader && _sortEnabled && ty < _y + headerHeight()) {
+        _headerTap = true;
+        _pressed = true;
+        _touchDownX = tx;
+        _touchDownY = ty;
+        return;
+    }
+
+    _pressed = true;
+    _dragging = false;
+    _wasDrag = false;
+    _touchStartY = ty;
+    _touchDownX = tx;
+    _touchDownY = ty;
+    _scrollStart = _scrollOffset;
+    if (_onTouch) _onTouch(TouchEvent::TOUCH);
+}
+
+void UIColumnList::handleTouchMove(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+    if (_headerTap) return;  // No drag on header
+
+    int16_t dy = _touchStartY - ty;
+    int16_t totalDy = ty - _touchDownY;
+    if (!_wasDrag && (totalDy > DRAG_THRESHOLD || totalDy < -DRAG_THRESHOLD)) {
+        _wasDrag = true;
+    }
+
+    if (_wasDrag) {
+        _scrollOffset = _scrollStart + dy;
+        clampScroll();
+        _dirty = true;
+    }
+}
+
+void UIColumnList::handleTouchUp(int16_t tx, int16_t ty) {
+    if (!_pressed) return;
+    _pressed = false;
+
+    // Header tap — toggle sort on clicked column
+    if (_headerTap) {
+        _headerTap = false;
+        int col = colAtX(tx);
+        if (col >= 0 && col < _colCount && _columns[col].sortable) {
+            if (_sortCol == col) {
+                // Cycle: ASC -> DESC -> NONE
+                if (_sortDir == SortDir::ASC) {
+                    sortByColumn(col, SortDir::DESC);
+                } else {
+                    clearSort();
+                }
+            } else {
+                sortByColumn(col, SortDir::ASC);
+            }
+        }
+        if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+        return;
+    }
+
+    if (!_wasDrag) {
+        int idx = rowAtY(ty);
+        if (idx >= 0 && idx < _rowCount) {
+            int dataIdx = _sortOrder[idx];
+            if (_rows[dataIdx].enabled) {
+                _selectedIndex = idx;
+                _dirty = true;
+                if (_onSelect) _onSelect(idx, _rows[dataIdx].cells[0].text);
+            }
+        }
+    }
+
+    _dragging = false;
+    _wasDrag = false;
+    if (_onRelease) _onRelease(TouchEvent::TOUCH_RELEASE);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  UITextArea
 // ═════════════════════════════════════════════════════════════════════════════
 

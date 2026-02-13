@@ -2,6 +2,20 @@
 
 All notable changes to the Tab5UI library are documented here.
 
+## [1.2.0] — 2026-02-13
+
+### New Widgets
+- **UIColumnList** — Multi-column list widget with all the characteristics of UIList (scrolling, selection, per-row disable, callbacks) plus:
+  - Configurable columns with header text, width, and alignment (left/center/right).
+  - Cell values can be **text** (with optional per-cell custom color) or **PROGMEM PNG icons**.
+  - **Click-to-sort** column headers — tap a sortable header to cycle through ascending → descending → unsorted.
+  - Sort indicator (▲/▼ triangle) drawn in the active column header.
+  - Per-column `sortable` flag; icon-only columns can be excluded from sorting.
+  - Sprite-buffered rendering for flicker-free display.
+
+### New Examples
+- **Tab5UI_ColumnList_Demo** — 20-row server dashboard showcasing multi-column layout, per-cell colored text, icons, disabled rows, and interactive column sorting.
+
 ## [1.1.1] — 2026-02-11
 
 ### Bug Fixes

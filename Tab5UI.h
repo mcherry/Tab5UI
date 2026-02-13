@@ -6,7 +6,7 @@
  *
  * Widgets: Label, Button, IconButton, Slider, TitleBar, StatusBar, TextRow,
  *          IconSquare, IconCircle, Menu, TextInput, Keyboard, TabView,
- *          ConfirmPopup, ScrollText
+ *          ConfirmPopup, ScrollText, ColumnList
  * All widgets support touch and touch-release event callbacks.
  *
  * License: MIT
@@ -1580,6 +1580,206 @@ private:
     void     clampScroll();
     int      itemAtY(int16_t ty) const;
     void     calcListGeometry();
+};
+
+/*******************************************************************************
+ * UIColumnList — Scrollable multi-column list with selectable rows
+ *
+ * A columned variant of UIList.  Each row has multiple cells and each cell
+ * can display either text or a PROGMEM PNG icon.  Supports an optional
+ * header row, column alignment, per-cell text color, drag-scrolling, tap
+ * selection, and a scrollbar.
+ *
+ * Usage:
+ *   #include "icons/icon_like.h"
+ *
+ *   UIColumnList table(20, 60, 800, 500);
+ *   table.addColumn("Name",   300);
+ *   table.addColumn("Status", 200, textdatum_t::middle_center);
+ *   table.addColumn("Action", 200, textdatum_t::middle_center);
+ *
+ *   int row = table.addRow();
+ *   table.setCellText(row, 0, "Server Alpha");
+ *   table.setCellText(row, 1, "Online");
+ *   table.setCellIcon(row, 2, icon_like, icon_like_size);
+ *
+ *   table.setOnSelect([](int index, const char* text) {
+ *       Serial.printf("Row %d selected\n", index);
+ *   });
+ *   ui.addElement(&table);
+ ******************************************************************************/
+
+#define TAB5_COLLIST_MAX_COLS  8      // Max columns per list
+
+// ── Sort direction ──
+enum class SortDir { NONE, ASC, DESC };
+
+// ── Column definition ──
+struct UIColumnDef {
+    char        header[32];           // Column header text
+    int16_t     width;                // Pixel width (0 = fill remaining)
+    textdatum_t align;                // Text alignment within column
+    bool        sortable;             // Whether this column can be sorted
+
+    UIColumnDef()
+        : width(0), align(textdatum_t::middle_left), sortable(true)
+    { header[0] = '\0'; }
+};
+
+// ── Cell value (text or PROGMEM PNG icon) ──
+struct UIColumnCell {
+    char           text[48];          // Text content
+    const uint8_t* iconData;          // PROGMEM PNG data (nullptr = text)
+    uint32_t       iconSize;          // Size of icon data in bytes
+    uint32_t       textColor;         // Per-cell text color
+    bool           useCustomColor;    // true = use textColor, false = default
+
+    UIColumnCell()
+        : iconData(nullptr), iconSize(0)
+        , textColor(0), useCustomColor(false)
+    { text[0] = '\0'; }
+};
+
+// ── Row: array of cells ──
+struct UIColumnListRow {
+    UIColumnCell cells[TAB5_COLLIST_MAX_COLS];
+    bool         enabled;
+
+    UIColumnListRow() : enabled(true) {}
+};
+
+using ColumnListSelectCallback = std::function<void(int rowIndex, const char* firstCellText)>;
+
+class UIColumnList : public UIElement {
+public:
+    UIColumnList(int16_t x, int16_t y, int16_t w, int16_t h,
+                 uint32_t bgColor     = Tab5Theme::BG_MEDIUM,
+                 uint32_t textColor   = Tab5Theme::TEXT_PRIMARY,
+                 uint32_t selectColor = Tab5Theme::PRIMARY);
+
+    void draw(LovyanGFX& gfx) override;
+    void handleTouchDown(int16_t tx, int16_t ty) override;
+    void handleTouchMove(int16_t tx, int16_t ty) override;
+    void handleTouchUp(int16_t tx, int16_t ty) override;
+
+    // ── Column management ──
+    int  addColumn(const char* header, int16_t width = 0,
+                   textdatum_t align = textdatum_t::middle_left);
+    void setColumnHeader(int col, const char* header);
+    void setColumnWidth(int col, int16_t width);
+    void setColumnAlign(int col, textdatum_t align);
+    void setColumnSortable(int col, bool sortable);
+    int  columnCount() const { return _colCount; }
+    void setShowHeader(bool show) { _showHeader = show; _dirty = true; }
+
+    // ── Sorting ──
+    void setSortable(bool s)  { _sortEnabled = s; _dirty = true; }
+    bool isSortable() const   { return _sortEnabled; }
+    void sortByColumn(int col, SortDir dir = SortDir::ASC);
+    void clearSort();                 // Remove sort, restore insertion order
+    int  getSortColumn()  const { return _sortCol; }
+    SortDir getSortDir()  const { return _sortDir; }
+
+    // ── Row management ──
+    int  addRow();                             // Add empty row, returns index
+    void removeRow(int index);
+    void clearRows();
+    void setRowEnabled(int row, bool enabled);
+    int  rowCount() const { return _rowCount; }
+
+    // ── Cell content ──
+    void setCellText(int row, int col, const char* text);
+    void setCellText(int row, int col, const char* text, uint32_t textColor);
+    void setCellIcon(int row, int col,
+                     const uint8_t* iconData, uint32_t iconSize);
+    void clearCell(int row, int col);
+    const char* getCellText(int row, int col) const;
+
+    // ── Selection ──
+    int  getSelectedIndex() const { return _selectedIndex; }
+    const char* getSelectedText() const;       // Returns first cell of selected row
+    void setSelectedIndex(int index);
+    void clearSelection();
+
+    // ── Callbacks ──
+    void setOnSelect(ColumnListSelectCallback cb) { _onSelect = cb; }
+
+    // ── Scroll ──
+    void scrollTo(int16_t offset);
+    void scrollToRow(int index);
+
+    // ── Appearance ──
+    void setBgColor(uint32_t c)        { _bgColor = c; _dirty = true; }
+    void setTextColor(uint32_t c)      { _textColor = c; _dirty = true; }
+    void setSelectColor(uint32_t c)    { _selectColor = c; _dirty = true; }
+    void setBorderColor(uint32_t c)    { _borderColor = c; _dirty = true; }
+    void setHeaderBgColor(uint32_t c)  { _headerBgColor = c; _dirty = true; }
+    void setHeaderTextColor(uint32_t c){ _headerTextColor = c; _dirty = true; }
+    void setItemHeight(int16_t h)      { _itemH = h; _autoScale = false; _dirty = true; }
+    void setTextSize(float s)          { _textSize = s; _autoScale = true; _dirty = true; }
+    void setHeaderTextSize(float s)    { _headerTextSize = s; _dirty = true; }
+    void setDividerColor(uint32_t c)   { _dividerColor = c; _dirty = true; }
+    void setShowColumnDividers(bool s) { _showColDividers = s; _dirty = true; }
+    void setSortIndicatorColor(uint32_t c) { _sortIndicatorColor = c; _dirty = true; }
+
+private:
+    // Columns
+    UIColumnDef   _columns[TAB5_COLLIST_MAX_COLS];
+    int           _colCount   = 0;
+    bool          _showHeader = true;
+
+    // Rows
+    UIColumnListRow _rows[TAB5_LIST_MAX_ITEMS];
+    int             _rowCount      = 0;
+    int             _selectedIndex = -1;
+
+    // Geometry
+    int16_t  _scrollOffset = 0;
+    int16_t  _itemH        = TAB5_LIST_ITEM_H;
+    float    _textSize     = TAB5_FONT_SIZE_MD;
+    float    _headerTextSize = TAB5_FONT_SIZE_MD;
+    bool     _autoScale    = true;
+
+    // Colors
+    uint32_t _bgColor;
+    uint32_t _textColor;
+    uint32_t _selectColor;
+    uint32_t _borderColor      = Tab5Theme::BORDER;
+    uint32_t _headerBgColor    = Tab5Theme::SURFACE;
+    uint32_t _headerTextColor  = Tab5Theme::TEXT_PRIMARY;
+    uint32_t _dividerColor     = Tab5Theme::DIVIDER;
+    bool     _showColDividers  = true;
+    uint32_t _sortIndicatorColor = Tab5Theme::ACCENT;
+
+    ColumnListSelectCallback _onSelect = nullptr;
+
+    // Sort state
+    bool     _sortEnabled   = true;    // Allow header-tap sorting
+    int      _sortCol       = -1;      // Currently sorted column (-1 = none)
+    SortDir  _sortDir       = SortDir::NONE;
+    int      _sortOrder[TAB5_LIST_MAX_ITEMS]; // Indirection: display row i -> data row _sortOrder[i]
+    bool     _sortOrderDirty = true;           // Rebuild _sortOrder before next draw
+
+    // Touch-scroll state
+    bool     _dragging      = false;
+    int16_t  _touchStartY   = 0;
+    int16_t  _scrollStart   = 0;
+    int16_t  _touchDownX    = 0;
+    int16_t  _touchDownY    = 0;
+    bool     _wasDrag       = false;
+    bool     _headerTap     = false;   // Touch started on header row
+    static constexpr int16_t DRAG_THRESHOLD = 8;
+
+    // Internal helpers
+    int16_t  headerHeight() const { return _showHeader ? _itemH : 0; }
+    int16_t  totalContentHeight() const { return _rowCount * _itemH; }
+    int16_t  maxScroll() const;
+    void     clampScroll();
+    int      rowAtY(int16_t ty) const;
+    int16_t  columnX(int col) const;       // Pixel X of column start
+    void     resolveColumnWidths();        // Fill auto-width columns
+    void     rebuildSortOrder();           // Rebuild _sortOrder from current sort state
+    int      colAtX(int16_t tx) const;     // Which column a screen X falls in
 };
 
 /*******************************************************************************

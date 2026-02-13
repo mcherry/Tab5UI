@@ -26,6 +26,7 @@ A lightweight, Arduino-compatible UI widget library built on **M5GFX** for the M
 | **UICheckbox** | Toggleable checkbox with label, checked state, and touch callbacks |
 | **UIRadioButton** | Selectable radio button with label, managed by UIRadioGroup for mutual exclusion |
 | **UIDropdown** | Compact dropdown selector with scrollable list overlay, icons, and all UIList features |
+| **UIColumnList** | Multi-column list with sortable headers, per-cell text/color/icon, scrolling, and selection |
 | **UITextArea** | Multi-line text input with word wrapping, touch scrolling, and tap-to-place cursor |
 | **UIManager** | Registers elements, dispatches touch events, manages dirty redraws |
 
@@ -48,7 +49,7 @@ The `UIManager::update()` method handles all touch detection, hit-testing (inclu
 
 ### Flicker-Free Rendering
 
-Nine widgets use **sprite-buffered (double-buffered) rendering** via a shared `M5Canvas` allocated in PSRAM. Instead of clearing and redrawing directly to the display (which causes visible flicker), each widget renders into an off-screen sprite buffer and pushes the completed frame to the display in a single DMA transfer. If PSRAM allocation fails, widgets automatically fall back to direct rendering.
+Ten widgets use **sprite-buffered (double-buffered) rendering** via a shared `M5Canvas` allocated in PSRAM. Instead of clearing and redrawing directly to the display (which causes visible flicker), each widget renders into an off-screen sprite buffer and pushes the completed frame to the display in a single DMA transfer. If PSRAM allocation fails, widgets automatically fall back to direct rendering.
 
 **Sprite-buffered widgets:**
 
@@ -58,13 +59,14 @@ Nine widgets use **sprite-buffered (double-buffered) rendering** via a shared `M
 | **UIScrollText** | Scrollable Markdown-rendered text |
 | **UITextArea** | Multi-line text input with cursor and scrolling |
 | **UIDropdown** | Scrollable overlay list |
+| **UIColumnList** | Multi-column list with sortable headers |
 | **UISlider** | Animated thumb and fill track |
 | **UIKeyboard** | Full-screen modal key grid |
 | **UIMenu** | Modal popup menu |
 | **UIInfoPopup** | Modal info dialog |
 | **UIConfirmPopup** | Modal confirmation dialog |
 
-All nine widgets share a single static `M5Canvas` instance that is lazily allocated and reused, keeping PSRAM usage to one buffer at a time.
+All ten widgets share a single static `M5Canvas` instance that is lazily allocated and reused, keeping PSRAM usage to one buffer at a time.
 
 You can override the default behaviour by defining `TAB5_RENDER_MODE` **before** including `Tab5UI.h`:
 
@@ -842,6 +844,81 @@ Tapping an item selects it, fires the callback, and auto-closes the dropdown.
 Tapping outside the list dismisses it.  The dropdown participates in the
 modal overlay system, capturing all touch input while open.
 
+### UIColumnList
+
+```cpp
+UIColumnList(x, y, w, h, bgColor, textColor, selectColor);
+
+// Column definitions (call before adding rows; max TAB5_COLLIST_MAX_COLS = 8)
+void addColumn(const char* header, int16_t width,
+               TextAlign align = TextAlign::LEFT,
+               bool sortable = true);
+
+// Row management (max TAB5_LIST_MAX_ITEMS = 64 rows)
+int  addRow();                        // Returns row index
+void removeRow(int index);
+void clearRows();
+
+// Cell content
+void setCellText(int row, int col, const char* text);
+void setCellText(int row, int col, const char* text, uint32_t color); // custom color
+void setCellIcon(int row, int col,
+                 const uint8_t* pngData, size_t pngSize); // PROGMEM PNG icon
+
+// Row state
+void setRowEnabled(int row, bool enabled);
+int  rowCount() const;
+int  columnCount() const;
+
+// Selection
+int  getSelectedIndex() const;        // -1 if none
+void setSelectedIndex(int index);
+void clearSelection();
+
+// Scrolling
+void scrollTo(int16_t offset);        // Pixel offset from top
+void scrollToItem(int index);         // Ensure row is visible
+
+// Sorting
+void sortByColumn(int col, SortDir dir); // Sort programmatically
+void clearSort();                     // Remove sort, restore original order
+void setSortable(bool enabled);       // Enable/disable all header sorting
+void setColumnSortable(int col, bool sortable); // Per-column sortable flag
+void setSortIndicatorColor(uint32_t c);  // Triangle indicator color
+
+// Callbacks
+void setOnSelect(ColumnListSelectCallback cb); // void(int index)
+
+// Appearance
+void setBgColor(uint32_t c);
+void setTextColor(uint32_t c);
+void setSelectColor(uint32_t c);
+void setBorderColor(uint32_t c);
+void setHeaderBgColor(uint32_t c);
+void setHeaderTextColor(uint32_t c);
+void setTextSize(float s);
+void setItemHeight(int16_t h);
+```
+
+**Columns:** Define columns with `addColumn()` before adding rows.  Each
+column has a header label, pixel width, text alignment, and a `sortable`
+flag.  Columns that contain only icons (no meaningful text) should set
+`sortable = false`.
+
+**Cells:** Each cell can hold either text or a PROGMEM PNG icon.  Text cells
+support per-cell custom colors via the color overload of `setCellText()` —
+useful for status indicators (green for OK, red for Critical, etc.).
+
+**Sorting:** Tap a sortable column header to cycle through ascending →
+descending → unsorted.  A triangle indicator (▲/▼) appears in the active
+sort column.  Sorting uses case-insensitive string comparison and operates
+through an indirection array — row data and icon pointers are never moved.
+
+**Behavior:** Identical scroll and selection mechanics to UIList — drag to
+scroll, tap to select, 8px tap-vs-drag threshold, automatic scrollbar.
+Disabled rows are drawn in gray and cannot be selected.  Up to 64 rows and
+8 columns are supported.  Sprite-buffered for flicker-free rendering.
+
 ### UITextArea
 
 ```cpp
@@ -966,7 +1043,8 @@ Tab5UI/
 │   ├── screenshot6_tab_controls.png
 │   ├── screenshot7_tab_list.png
 │   ├── screenshot8_confirm_popup.png
-│   └── screenshot9_tab_text.png
+│   ├── screenshot9_tab_text.png
+│   └── screenshot10_column_list.png
 └── examples/
     ├── Tab5UI_Demo/
     │   └── Tab5UI_Demo.ino           # Full demo sketch (landscape)
@@ -976,8 +1054,10 @@ Tab5UI/
     │   └── Tab5UI_Tab_Demo.ino       # Tab view demo (landscape)
     ├── Tab5UI_WiFi_Demo/
     │   └── Tab5UI_WiFi_Demo.ino      # WiFi scanner demo (portrait)
-    └── Tab5UI_TextArea_Demo/
-        └── Tab5UI_TextArea_Demo.ino   # Multi-line text input demo (portrait)
+    ├── Tab5UI_TextArea_Demo/
+    │   └── Tab5UI_TextArea_Demo.ino   # Multi-line text input demo (portrait)
+    └── Tab5UI_ColumnList_Demo/
+        └── Tab5UI_ColumnList_Demo.ino # Column list demo (landscape)
 ```
 
 ---
@@ -1027,6 +1107,9 @@ Tab5UI/
 
 ### Tab Demo — Scrollable Text
 ![Tab Scrollable Text](screenshots/screenshot9_tab_text.png)
+
+### Column List Demo
+![Column List](screenshots/screenshot10_column_list.png)
 
 ## License
 
